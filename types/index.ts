@@ -139,3 +139,38 @@ export interface AiUsageLog {
   usedOn: string;
   count: number;
 }
+
+/** Esercizio predefinito riusabile (libreria) per creazione manuale / generazione AI. */
+export interface ExerciseTemplate {
+  id: string;
+  name: string;
+  muscleGroups: string[];
+  /** Attrezzatura necessaria (chiavi di WORKOUT_EQUIPMENT_OPTIONS). */
+  equipment: string[];
+  sets: number;
+  reps: number;
+  weightKg: number;
+}
+
+/** Input per la generazione AI di una scheda (mock → API future). */
+export interface WorkoutGenerationInput {
+  goal: string;
+  level: string;
+  daysPerWeek: number;
+  equipment: string[];
+}
+
+/** Giorno di una bozza di scheda (generazione AI / importazione file). */
+export interface WorkoutDraftDay {
+  id: string;
+  name: string;
+  muscleGroups: string[];
+  exercises: ExerciseTemplate[];
+}
+
+/** Bozza di scheda generata o importata, mostrata prima del salvataggio. */
+export interface WorkoutDraft {
+  id: string;
+  name: string;
+  days: WorkoutDraftDay[];
+}
