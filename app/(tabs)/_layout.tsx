@@ -1,178 +1,90 @@
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { Home, Dumbbell, UtensilsCrossed, TrendingUp, User } from "lucide-react-native";
+import { FitTrackTabBar } from "../../components/navigation/FitTrackTabBar";
 
 /**
  * Tab bar per piattaforma:
- * - iOS (26+): Liquid Glass nativa (sf = SF Symbols)
- * - Android:   Material 3 nativa (md = icone Material)
- * - Web:       Tabs classica in basso, tema scuro (niente pill
- *              flottante che copre l'header e testo illeggibile)
+ * - iOS (26+): Liquid Glass nativa (NativeTabs, SF Symbols) — funziona bene.
+ * - Android:   barra JS stile Material 3 (FitTrackTabBar + icone Lucide).
+ *              Sostituisce i tab nativi perché le icone Material di NativeTabs
+ *              non si vedono sulla tab attiva (StateListDrawable di
+ *              react-native-screens non renderizza lo stato selezionato).
+ * - Web:       stessa barra JS del Design System (tema scuro).
  *
  * Tinta selezione: arancione energia del design system.
  */
 export default function TabsLayout() {
-  if (Platform.OS === "web") {
-    return <WebTabs />;
+  if (Platform.OS === "ios") {
+    return <NativeTabsLayout />;
   }
-  return <NativeTabsLayout />;
+  return <MaterialTabs />;
 }
 
-const WEB_TAB_ICON_SIZE = 22;
-const WEB_ACTIVE_TINT = "#F97316";
-const WEB_INACTIVE_TINT = "#94A3B8";
-
-/** Sfondo scuro forzato a tutti i livelli nativi dei tab. */
+/** Sfondo scuro forzato a tutti i livelli nativi dei tab (iOS). */
 const NATIVE_TABS_BG = { backgroundColor: "#0F172A" };
 
 /**
- * Workaround Android: quando icona e selectedIcon sono entrambe presenti,
- * react-native-screens costruisce uno StateListDrawable (checked -> selectedIcon)
- * che con le icone Material renderizzate come immagine bianca non mostra
- * l'icona sulla tab attiva. Forzando `selectedIcon: undefined` il tab usa il
- * percorso a singolo drawable (quello delle icone non attive), tinto
- * automaticamente con i colori di `iconColor` per stato selezionato.
- * Solo per Android: su iOS la chiave `android` viene ignorata.
+ * Tab bar JS riprogettata (Android + Web): pill Material 3, icone Lucide,
+ * etichette sempre visibili, safe area e target >= 48pt gestiti nel componente.
  */
-const ANDROID_SINGLE_ICON = { android: { selectedIcon: undefined } } as const;
-
-/** Barra tab per web: in basso, sfondo scuro, etichette sempre leggibili. */
-function WebTabs() {
+function MaterialTabs() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: "#0F172A" },
-        tabBarStyle: {
-          backgroundColor: "#0F172A",
-          borderTopColor: "#1E293B",
-          borderTopWidth: 1,
-        },
-        tabBarActiveTintColor: WEB_ACTIVE_TINT,
-        tabBarInactiveTintColor: WEB_INACTIVE_TINT,
-        tabBarLabelStyle: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
       }}
+      tabBar={FitTrackTabBar}
     >
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color }) => (
-            <Home size={WEB_TAB_ICON_SIZE} color={color} strokeWidth={2.2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="scheda"
-        options={{
-          title: "Scheda",
-          tabBarIcon: ({ color }) => (
-            <Dumbbell size={WEB_TAB_ICON_SIZE} color={color} strokeWidth={2.2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="dieta"
-        options={{
-          title: "Dieta",
-          tabBarIcon: ({ color }) => (
-            <UtensilsCrossed size={WEB_TAB_ICON_SIZE} color={color} strokeWidth={2.2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="progressi"
-        options={{
-          title: "Progressi",
-          tabBarIcon: ({ color }) => (
-            <TrendingUp size={WEB_TAB_ICON_SIZE} color={color} strokeWidth={2.2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profilo"
-        options={{
-          title: "Profilo",
-          tabBarIcon: ({ color }) => (
-            <User size={WEB_TAB_ICON_SIZE} color={color} strokeWidth={2.2} />
-          ),
-        }}
-      />
+      <Tabs.Screen name="home" options={{ title: "Home" }} />
+      <Tabs.Screen name="scheda" options={{ title: "Scheda" }} />
+      <Tabs.Screen name="dieta" options={{ title: "Dieta" }} />
+      <Tabs.Screen name="progressi" options={{ title: "Progressi" }} />
+      <Tabs.Screen name="profilo" options={{ title: "Profilo" }} />
     </Tabs>
   );
 }
 
-/** Tab bar nativa per iOS (Liquid Glass) e Android (Material 3). */
+/** Tab bar nativa per iOS (Liquid Glass). */
 function NativeTabsLayout() {
   return (
     <NativeTabs
       tintColor="#F97316"
       iconColor={{ default: "#64748B", selected: "#F97316" }}
       labelStyle={{ fontSize: 12 }}
-      indicatorColor="#F97316"
-      rippleColor="rgba(249, 115, 22, 0.25)"
       // Il container nativo usa per default lo sfondo di sistema (bianco in
       // modalità chiara): lo forziamo al colore del tema per non vedere
-      // bianco dietro la tab bar Liquid Glass / Material.
+      // bianco dietro la tab bar Liquid Glass.
       unstable_nativeProps={{ nativeContainerStyle: NATIVE_TABS_BG }}
     >
-      <NativeTabs.Trigger
-        name="home"
-        contentStyle={NATIVE_TABS_BG}
-        unstable_nativeProps={ANDROID_SINGLE_ICON}
-      >
+      <NativeTabs.Trigger name="home" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "house", selected: "house.fill" }}
-          md="home"
         />
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger
-        name="scheda"
-        contentStyle={NATIVE_TABS_BG}
-        unstable_nativeProps={ANDROID_SINGLE_ICON}
-      >
+      <NativeTabs.Trigger name="scheda" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "dumbbell", selected: "dumbbell.fill" }}
-          md="fitness_center"
         />
         <NativeTabs.Trigger.Label>Scheda</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger
-        name="dieta"
-        contentStyle={NATIVE_TABS_BG}
-        unstable_nativeProps={ANDROID_SINGLE_ICON}
-      >
-        <NativeTabs.Trigger.Icon
-          sf={{ default: "fork.knife", selected: "fork.knife" }}
-          md="restaurant"
-        />
+      <NativeTabs.Trigger name="dieta" contentStyle={NATIVE_TABS_BG}>
+        <NativeTabs.Trigger.Icon sf="fork.knife" />
         <NativeTabs.Trigger.Label>Dieta</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger
-        name="progressi"
-        contentStyle={NATIVE_TABS_BG}
-        unstable_nativeProps={ANDROID_SINGLE_ICON}
-      >
-        <NativeTabs.Trigger.Icon
-          sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis" }}
-          md="trending_up"
-        />
+      <NativeTabs.Trigger name="progressi" contentStyle={NATIVE_TABS_BG}>
+        <NativeTabs.Trigger.Icon sf="chart.line.uptrend.xyaxis" />
         <NativeTabs.Trigger.Label>Progressi</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger
-        name="profilo"
-        contentStyle={NATIVE_TABS_BG}
-        unstable_nativeProps={ANDROID_SINGLE_ICON}
-      >
+      <NativeTabs.Trigger name="profilo" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "person", selected: "person.fill" }}
-          md="person"
         />
         <NativeTabs.Trigger.Label>Profilo</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>

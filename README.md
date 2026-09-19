@@ -18,12 +18,17 @@ L'interfaccia usa i componenti nativi del sistema, non un look "unico" multipiat
 | Piattaforma | Tab bar | Icone |
 | ----------- | ------- | ----- |
 | **iOS 26+** | Liquid Glass (NativeTabs) | SF Symbols |
-| **Android** | Material 3 (Bottom Nav) | Icone Material |
-| **Web** | Tabs JS in basso (tema scuro) | Icone Lucide + etichette |
+| **Android** | Barra JS stile Material 3 (pill attiva) | Lucide + etichette |
+| **Web** | Tabs JS in basso (tema scuro) | Lucide + etichette |
 
 Tema scuro `#0F172A` con accento arancione energia (`#F97316`) e verde successo (`#22C55E`), font **Inter**.
 
-> **Nota Android (icone tab):** con le icone Material di NativeTabs, `icona` + `selectedIcon` fanno costruire a react-native-screens uno `StateListDrawable` che non renderizza l'icona sullo stato selezionato. In `app/(tabs)/_layout.tsx` forziamo `android: { selectedIcon: undefined }` (via `unstable_nativeProps`) su ogni trigger: il tab usa il percorso a singolo drawable e la tinta arancione/grigia è gestita dai colori di `iconColor` per stato. Su iOS il campo `android` è ignorato (SF Symbols invariati).
+> **Nota Android (tab bar):** i tab nativi di NativeTabs su Android passano le icone per
+> `renderToImageAsync` + `StateListDrawable` di react-native-screens, che non renderizza
+> l'icona sullo stato selezionato. Android (e Web) usano quindi la barra JS riprogettata
+> `components/navigation/FitTrackTabBar.tsx` (pill arancione sull'item attivo, ripple,
+> safe area, target ≥ 48dp, icone Lucide): elimina la classe di bug e dà controllo totale
+> del design. Su iOS resta la tab bar nativa Liquid Glass (SF Symbols, funziona bene).
 
 ## Struttura del progetto
 
@@ -34,7 +39,7 @@ app/                      (route Expo Router con guard di autenticazione)
 ├── (auth)/               login.tsx, register.tsx
 ├── onboarding.tsx        onboarding post-registrazione
 └── (tabs)/               tab bar (5 tab) + schermate
-    ├── _layout.tsx       NativeTabs su iOS/Android, Tabs web in basso
+    ├── _layout.tsx       iOS: NativeTabs; Android/Web: barra JS Material 3
     ├── home.tsx          Home (dashboard)
     ├── scheda/           Scheda allenamento
     │   ├── index.tsx
