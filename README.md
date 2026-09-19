@@ -19,7 +19,7 @@ L'interfaccia usa i componenti nativi del sistema, non un look "unico" multipiat
 | ----------- | ------- | ----- |
 | **iOS 26+** | Liquid Glass (NativeTabs) | SF Symbols |
 | **Android** | Material 3 (Bottom Nav) | Icone Material |
-| **Web** | JS tabs (fallback Radix) | Etichette |
+| **Web** | Tabs JS in basso (tema scuro) | Icone Lucide + etichette |
 
 Tema scuro `#0F172A` con accento arancione energia (`#F97316`) e verde successo (`#22C55E`), font **Inter**.
 
@@ -31,10 +31,12 @@ app/                      (route Expo Router con guard di autenticazione)
 ├── index.tsx             redirect verso login/onboarding/tab
 ├── (auth)/               login.tsx, register.tsx
 ├── onboarding.tsx        onboarding post-registrazione
-└── (tabs)/               bottom tab nativo (5 tab) + schermate segnaposto
-    ├── _layout.tsx       NativeTabs (Liquid Glass / Material)
-    ├── home.tsx          Home
-    ├── scheda.tsx        Scheda allenamento
+└── (tabs)/               tab bar (5 tab) + schermate
+    ├── _layout.tsx       NativeTabs su iOS/Android, Tabs web in basso
+    ├── home.tsx          Home (dashboard)
+    ├── scheda/           Scheda allenamento
+    │   ├── index.tsx
+    │   └── allenamento/[dayId].tsx  dettaglio esercizi
     ├── dieta.tsx         Dieta
     ├── progressi.tsx     Progressi
     └── profilo.tsx       Profilo
