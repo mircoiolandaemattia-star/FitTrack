@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Appearance } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
@@ -16,6 +17,11 @@ import "../global.css";
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
+  // Il design system è dark-only: forza l'aspetto scuro anche se il
+  // dispositivo è in modalità chiara (tab bar Liquid Glass, sfondi di
+  // sistema, tastiera e contenitori nativi restano scuri).
+  Appearance.setColorScheme("dark");
+
   return (
     <AuthProvider>
       <RootNavigator />
