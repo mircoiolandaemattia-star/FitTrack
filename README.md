@@ -23,6 +23,8 @@ L'interfaccia usa i componenti nativi del sistema, non un look "unico" multipiat
 
 Tema scuro `#0F172A` con accento arancione energia (`#F97316`) e verde successo (`#22C55E`), font **Inter**.
 
+> **Nota Android (icone tab):** con le icone Material di NativeTabs, `icona` + `selectedIcon` fanno costruire a react-native-screens uno `StateListDrawable` che non renderizza l'icona sullo stato selezionato. In `app/(tabs)/_layout.tsx` forziamo `android: { selectedIcon: undefined }` (via `unstable_nativeProps`) su ogni trigger: il tab usa il percorso a singolo drawable e la tinta arancione/grigia è gestita dai colori di `iconColor` per stato. Su iOS il campo `android` è ignorato (SF Symbols invariati).
+
 ## Struttura del progetto
 
 ```
