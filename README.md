@@ -25,10 +25,13 @@ Tema scuro `#0F172A` con accento arancione energia (`#F97316`) e verde successo 
 
 > **Nota Android (tab bar):** i tab nativi di NativeTabs su Android passano le icone per
 > `renderToImageAsync` + `StateListDrawable` di react-native-screens, che non renderizza
-> l'icona sullo stato selezionato. Android (e Web) usano quindi la barra JS riprogettata
-> `components/navigation/FitTrackTabBar.tsx` (pill arancione sull'item attivo, ripple,
-> safe area, target ≥ 48dp, icone Lucide): elimina la classe di bug e dà controllo totale
-> del design. Su iOS resta la tab bar nativa Liquid Glass (SF Symbols, funziona bene).
+> l'icona sullo stato selezionato. Android (e Web) usano quindi la `BottomTabBar` del fork
+> di bottom-tabs di expo-router in **variante `material`** (`tabBarVariant: "material"`):
+> pill arrotondata sull'item attivo, sfondo attivo = tinta al 12%, icone Lucide, ripple e
+> ruoli di accessibilità già gestiti, target ≥ 48dp. Nessun componente `tabBar` custom:
+> il fork lo invoca come render-prop con chiamata di funzione diretta → "Invalid hook call"
+> con componenti React (testato anche via wrapper). Su iOS resta la tab bar nativa Liquid
+> Glass (SF Symbols, funziona bene).
 
 ## Struttura del progetto
 
@@ -39,7 +42,7 @@ app/                      (route Expo Router con guard di autenticazione)
 ├── (auth)/               login.tsx, register.tsx
 ├── onboarding.tsx        onboarding post-registrazione
 └── (tabs)/               tab bar (5 tab) + schermate
-    ├── _layout.tsx       iOS: NativeTabs; Android/Web: barra JS Material 3
+    ├── _layout.tsx       iOS: NativeTabs; Android/Web: BottomTabBar variante material
     ├── home.tsx          Home (dashboard)
     ├── scheda/           Scheda allenamento
     │   ├── index.tsx

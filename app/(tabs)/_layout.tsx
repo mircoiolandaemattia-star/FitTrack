@@ -1,17 +1,30 @@
-import { Platform } from "react-native";
+import { Platform, StyleSheet, type ColorValue } from "react-native";
 import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
-import { FitTrackTabBar } from "../../components/navigation/FitTrackTabBar";
+import {
+  Dumbbell,
+  Home,
+  TrendingUp,
+  User,
+  UtensilsCrossed,
+  type LucideIcon,
+} from "lucide-react-native";
 
 /**
  * Tab bar per piattaforma:
  * - iOS (26+): Liquid Glass nativa (NativeTabs, SF Symbols) — funziona bene.
- * - Android:   barra JS stile Material 3 (FitTrackTabBar + icone Lucide).
- *              Sostituisce i tab nativi perché le icone Material di NativeTabs
- *              non si vedono sulla tab attiva (StateListDrawable di
- *              react-native-screens non renderizza lo stato selezionato).
- * - Web:       stessa barra JS del Design System (tema scuro).
+ * - Android:   BottomTabBar del fork di bottom-tabs di expo-router in
+ *              variante 'material' (pill arrotondata, tinta attiva) + icone
+ *              Lucide. Sostituisce i tab nativi perché le icone Material di
+ *              NativeTabs non si vedono sulla tab attiva (StateListDrawable
+ *              di react-native-screens non renderizza lo stato selezionato).
+ * - Web:       stessa BottomTabBar (variante material) del Design System.
+ *
+ * NB: niente componente `tabBar` custom: il fork lo invoca come render-prop
+ * con chiamata di funzione diretta, che fa scattare "Invalid hook call"
+ * con i componenti React (anche via wrapper). La variante 'material'
+ * integrata offre già pill, sfondo attivo (tinta al 12%), ripple e ruoli
+ * di accessibilità, senza hook custom.
  *
  * Tinta selezione: arancione energia del design system.
  */
@@ -25,40 +38,66 @@ export default function TabsLayout() {
 /** Sfondo scuro forzato a tutti i livelli nativi dei tab (iOS). */
 const NATIVE_TABS_BG = { backgroundColor: "#0F172A" };
 
+/** Colori del design system FitTrack (dark-only). */
+const BAR_BG = "#0F172A";
+const BAR_BORDER = "#1E293B";
+const TAB_ACTIVE = "#F97316";
+const TAB_INACTIVE = "#94A3B8";
+const ICON_STROKE = 2.2;
+
+type TabIconProps = { focused: boolean; color: ColorValue; size: number };
+
+/** Render prop `tabBarIcon` a identità stabile (definita a livello di modulo). */
+const renderTabIcon =
+  (Icon: LucideIcon) =>
+  ({ color, size }: TabIconProps) =>
+    <Icon size={size} color={color as string} strokeWidth={ICON_STROKE} />;
+
 /**
- * Tab bar JS riprogettata (Android + Web): pill Material 3, icone Lucide,
- * etichette sempre visibili, safe area e target >= 48pt gestiti nel componente.
+ * Barra JS stile Material 3 (Android + Web), tutta via opzioni supportate
+ * della BottomTabBar del fork: pill attiva (radius 16), sfondo attivo =
+ * tabBarActiveTintColor al 12%, etichette sempre visibili (Inter 600),
+ * barra scura con hairline superiore, safe area gestita dal fork.
  */
 function MaterialTabs() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: "#0F172A" },
+        sceneStyle: { backgroundColor: BAR_BG },
+        tabBarVariant: "material",
+        tabBarActiveTintColor: TAB_ACTIVE,
+        tabBarInactiveTintColor: TAB_INACTIVE,
+        tabBarStyle: {
+          backgroundColor: BAR_BG,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: BAR_BORDER,
+        },
+        tabBarLabelStyle: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
       }}
-      tabBar={FitTrackTabBarWrapper}
     >
-      <Tabs.Screen name="home" options={{ title: "Home" }} />
-      <Tabs.Screen name="scheda" options={{ title: "Scheda" }} />
-      <Tabs.Screen name="dieta" options={{ title: "Dieta" }} />
-      <Tabs.Screen name="progressi" options={{ title: "Progressi" }} />
-      <Tabs.Screen name="profilo" options={{ title: "Profilo" }} />
+      <Tabs.Screen
+        name="home"
+        options={{ title: "Home", tabBarIcon: renderTabIcon(Home) }}
+      />
+      <Tabs.Screen
+        name="scheda"
+        options={{ title: "Scheda", tabBarIcon: renderTabIcon(Dumbbell) }}
+      />
+      <Tabs.Screen
+        name="dieta"
+        options={{ title: "Dieta", tabBarIcon: renderTabIcon(UtensilsCrossed) }}
+      />
+      <Tabs.Screen
+        name="progressi"
+        options={{ title: "Progressi", tabBarIcon: renderTabIcon(TrendingUp) }}
+      />
+      <Tabs.Screen
+        name="profilo"
+        options={{ title: "Profilo", tabBarIcon: renderTabIcon(User) }}
+      />
     </Tabs>
   );
-}
-
-/**
- * Wrapper a identità stabile per la `tabBar`.
- * Il fork di bottom-tabs di expo-router invoca `tabBar` come render-prop
- * (`tabBar({ state, descriptors, navigation, insets })`, vedi BottomTabView):
- * passandogli direttamente un componente con hook (FitTrackTabBar) lo chiama
- * come funzione piana da DOM-fuori-dalla-render-phase → "Invalid hook call".
- * Restituendo JSX (`<FitTrackTabBar ... />`) React lo monta come componente
- * regolare. Definita a livello di modulo per non cambiare identità a ogni
- * render (evita il remount della barra).
- */
-function FitTrackTabBarWrapper(props: BottomTabBarProps) {
-  return <FitTrackTabBar {...props} />;
 }
 
 /** Tab bar nativa per iOS (Liquid Glass). */
