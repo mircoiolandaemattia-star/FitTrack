@@ -20,7 +20,10 @@ export default function RootLayout() {
   // Il design system è dark-only: forza l'aspetto scuro anche se il
   // dispositivo è in modalità chiara (tab bar Liquid Glass, sfondi di
   // sistema, tastiera e contenitori nativi restano scuri).
-  Appearance.setColorScheme("dark");
+  // Su web l'API non è implementata: guardia per non rompere il bundle.
+  if (typeof Appearance.setColorScheme === "function") {
+    Appearance.setColorScheme("dark");
+  }
 
   return (
     <AuthProvider>
