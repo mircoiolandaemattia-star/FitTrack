@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { FitTrackTabBar } from "../../components/navigation/FitTrackTabBar";
 
 /**
@@ -35,7 +36,7 @@ function MaterialTabs() {
         headerShown: false,
         sceneStyle: { backgroundColor: "#0F172A" },
       }}
-      tabBar={FitTrackTabBar}
+      tabBar={FitTrackTabBarWrapper}
     >
       <Tabs.Screen name="home" options={{ title: "Home" }} />
       <Tabs.Screen name="scheda" options={{ title: "Scheda" }} />
@@ -44,6 +45,20 @@ function MaterialTabs() {
       <Tabs.Screen name="profilo" options={{ title: "Profilo" }} />
     </Tabs>
   );
+}
+
+/**
+ * Wrapper a identità stabile per la `tabBar`.
+ * Il fork di bottom-tabs di expo-router invoca `tabBar` come render-prop
+ * (`tabBar({ state, descriptors, navigation, insets })`, vedi BottomTabView):
+ * passandogli direttamente un componente con hook (FitTrackTabBar) lo chiama
+ * come funzione piana da DOM-fuori-dalla-render-phase → "Invalid hook call".
+ * Restituendo JSX (`<FitTrackTabBar ... />`) React lo monta come componente
+ * regolare. Definita a livello di modulo per non cambiare identità a ogni
+ * render (evita il remount della barra).
+ */
+function FitTrackTabBarWrapper(props: BottomTabBarProps) {
+  return <FitTrackTabBar {...props} />;
 }
 
 /** Tab bar nativa per iOS (Liquid Glass). */
