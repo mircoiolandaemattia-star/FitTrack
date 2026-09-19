@@ -23,6 +23,9 @@ const WEB_TAB_ICON_SIZE = 22;
 const WEB_ACTIVE_TINT = "#F97316";
 const WEB_INACTIVE_TINT = "#94A3B8";
 
+/** Sfondo scuro forzato a tutti i livelli nativi dei tab. */
+const NATIVE_TABS_BG = { backgroundColor: "#0F172A" };
+
 /** Barra tab per web: in basso, sfondo scuro, etichette sempre leggibili. */
 function WebTabs() {
   return (
@@ -98,8 +101,12 @@ function NativeTabsLayout() {
       labelStyle={{ fontSize: 12 }}
       indicatorColor="#F97316"
       rippleColor="rgba(249, 115, 22, 0.25)"
+      // Il container nativo usa per default lo sfondo di sistema (bianco in
+      // modalità chiara): lo forziamo al colore del tema per non vedere
+      // bianco dietro la tab bar Liquid Glass / Material.
+      unstable_nativeProps={{ nativeContainerStyle: NATIVE_TABS_BG }}
     >
-      <NativeTabs.Trigger name="home">
+      <NativeTabs.Trigger name="home" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "house", selected: "house.fill" }}
           md={{ default: "home", selected: "home_filled" }}
@@ -107,7 +114,7 @@ function NativeTabsLayout() {
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="scheda">
+      <NativeTabs.Trigger name="scheda" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "dumbbell", selected: "dumbbell.fill" }}
           md={{ default: "fitness_center", selected: "fitness_center" }}
@@ -115,7 +122,7 @@ function NativeTabsLayout() {
         <NativeTabs.Trigger.Label>Scheda</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="dieta">
+      <NativeTabs.Trigger name="dieta" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "fork.knife", selected: "fork.knife" }}
           md={{ default: "restaurant", selected: "restaurant" }}
@@ -123,7 +130,7 @@ function NativeTabsLayout() {
         <NativeTabs.Trigger.Label>Dieta</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="progressi">
+      <NativeTabs.Trigger name="progressi" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis" }}
           md={{ default: "trending_up", selected: "trending_up" }}
@@ -131,7 +138,7 @@ function NativeTabsLayout() {
         <NativeTabs.Trigger.Label>Progressi</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="profilo">
+      <NativeTabs.Trigger name="profilo" contentStyle={NATIVE_TABS_BG}>
         <NativeTabs.Trigger.Icon
           sf={{ default: "person", selected: "person.fill" }}
           md={{ default: "person", selected: "person" }}

@@ -74,7 +74,14 @@ function RootNavigator() {
   return (
     <>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          // Sfondo scuro anche per i contenitori native-stack (niente bianco
+          // durante le transizioni o se il contenuto non riempie la view).
+          contentStyle: { backgroundColor: "#0F172A" },
+        }}
+      >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)/login" />
         <Stack.Screen name="(auth)/register" />
