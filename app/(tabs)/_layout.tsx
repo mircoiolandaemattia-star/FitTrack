@@ -13,18 +13,19 @@ import {
 /**
  * Tab bar per piattaforma:
  * - iOS (26+): Liquid Glass nativa (NativeTabs, SF Symbols) — funziona bene.
- * - Android:   BottomTabBar del fork di bottom-tabs di expo-router in
- *              variante 'material' (pill arrotondata, tinta attiva) + icone
- *              Lucide. Sostituisce i tab nativi perché le icone Material di
- *              NativeTabs non si vedono sulla tab attiva (StateListDrawable
- *              di react-native-screens non renderizza lo stato selezionato).
- * - Web:       stessa BottomTabBar (variante material) del Design System.
+ * - Android:   barra classica del web (variante 'uikit' della BottomTabBar
+ *              di expo-router): icona Lucide + etichetta, tinta arancione
+ *              attiva / grigia inattiva. Sostituisce i tab nativi perché le
+ *              icone Material di NativeTabs non si vedono sulla tab attiva
+ *              (StateListDrawable di react-native-screens non renderizza lo
+ *              stato selezionato).
+ * - Web:       stessa barra classica del Design System (tema scuro).
  *
- * NB: niente componente `tabBar` custom: il fork lo invoca come render-prop
- * con chiamata di funzione diretta, che fa scattare "Invalid hook call"
- * con i componenti React (anche via wrapper). La variante 'material'
- * integrata offre già pill, sfondo attivo (tinta al 12%), ripple e ruoli
- * di accessibilità, senza hook custom.
+ * NB: la variante 'material' del fork è disponibile solo con
+ * `tabBarPosition` 'left'/'right' (layout verticali): per una barra in basso
+ * si usa la 'uikit' classica. Niente componente `tabBar` custom: il fork lo
+ * invoca come render-prop con chiamata di funzione diretta → "Invalid hook
+ * call" con componenti React (testato anche via wrapper).
  *
  * Tinta selezione: arancione energia del design system.
  */
@@ -54,10 +55,10 @@ const renderTabIcon =
     <Icon size={size} color={color as string} strokeWidth={ICON_STROKE} />;
 
 /**
- * Barra JS stile Material 3 (Android + Web), tutta via opzioni supportate
- * della BottomTabBar del fork: pill attiva (radius 16), sfondo attivo =
- * tabBarActiveTintColor al 12%, etichette sempre visibili (Inter 600),
- * barra scura con hairline superiore, safe area gestita dal fork.
+ * Barra JS classica del web (Android + Web), tutta via opzioni supportate
+ * della BottomTabBar del fork (variante 'uikit' di default): icona + 
+ * etichetta, tint arancione attiva / grigia inattiva, barra scura con
+ * hairline superiore, safe area gestita dal fork.
  */
 function MaterialTabs() {
   return (
@@ -65,7 +66,6 @@ function MaterialTabs() {
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: BAR_BG },
-        tabBarVariant: "material",
         tabBarActiveTintColor: TAB_ACTIVE,
         tabBarInactiveTintColor: TAB_INACTIVE,
         tabBarStyle: {
