@@ -13,12 +13,12 @@ npx expo start --web    # versione web nel browser
 
 ## Design nativo per piattaforma
 
-L'interfaccia usa i componenti nativi del sistema, non un look "unico" multipiattaforma:
+L'interfaccia segue il linguaggio di sistema dove possibile: su iOS la tab bar è nativa (Liquid Glass), su Android/Web è la stessa barra JS classica (le icone native Material di NativeTabs su Android non funzionano — vedi nota sotto).
 
 | Piattaforma | Tab bar | Icone |
 | ----------- | ------- | ----- |
 | **iOS 26+** | Liquid Glass (NativeTabs) | SF Symbols |
-| **Android** | Barra JS stile Material 3 (pill attiva) | Lucide + etichette |
+| **Android** | Barra JS classica (variante `uikit`, stessa del web) | Lucide + etichette |
 | **Web** | Tabs JS in basso (tema scuro) | Lucide + etichette |
 
 Tema scuro `#0F172A` con accento arancione energia (`#F97316`) e verde successo (`#22C55E`), font **Inter**.
