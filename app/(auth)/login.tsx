@@ -92,10 +92,12 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <View className="mt-8 flex-row justify-center gap-1">
+        <View className="mt-8 flex-row items-center justify-center gap-1">
           <Text className="font-sans text-sm text-muted">Non hai un account?</Text>
-          <Link href="/(auth)/register" className="font-inter-semibold text-sm text-primary">
-            Registrati
+          <Link href="/(auth)/register" asChild>
+            <Pressable className="active:opacity-60">
+              <Text className="font-inter-semibold text-sm text-primary">Registrati</Text>
+            </Pressable>
           </Link>
         </View>
       </KeyboardAvoidingView>

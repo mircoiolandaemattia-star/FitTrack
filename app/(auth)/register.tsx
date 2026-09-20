@@ -118,10 +118,12 @@ export default function RegisterScreen() {
           </Pressable>
         </View>
 
-        <View className="mt-8 flex-row justify-center gap-1">
+        <View className="mt-8 flex-row items-center justify-center gap-1">
           <Text className="font-sans text-sm text-muted">Hai già un account?</Text>
-          <Link href="/(auth)/login" className="font-inter-semibold text-sm text-primary">
-            Accedi
+          <Link href="/(auth)/login" asChild>
+            <Pressable className="active:opacity-60">
+              <Text className="font-inter-semibold text-sm text-primary">Accedi</Text>
+            </Pressable>
           </Link>
         </View>
       </KeyboardAvoidingView>
