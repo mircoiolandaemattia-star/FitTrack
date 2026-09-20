@@ -53,6 +53,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9dfee6c4-5a1b-44a3-9a0e-66d59d3426f9"
+      }
+    },
+    "owner": "tappetolesto4"
   }
 }
