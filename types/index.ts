@@ -174,3 +174,58 @@ export interface WorkoutDraft {
   name: string;
   days: WorkoutDraftDay[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Dieta: tipi per alimenti, macro, generazione e bozze               */
+/* ------------------------------------------------------------------ */
+
+/** Alimento comune con valori per 100g (libreria locale). */
+export interface CommonFood {
+  id: string;
+  name: string;
+  caloriesPer100g: number;
+  proteinGPer100g: number;
+  carbsGPer100g: number;
+  fatsGPer100g: number;
+}
+
+/** Input per la generazione AI di una dieta (mock → API future). */
+export interface DietGenerationInput {
+  goal: "dimagrire" | "mantenimento" | "massa";
+  allergies: string[];
+  customAllergy: string;
+  dietType: "onnivoro" | "vegetariano" | "vegano" | "pescatariano";
+  mealsPerDay: 3 | 4 | 5;
+}
+
+/** Bozza di un alimento in creazione/modifica (valori per la quantità scelta). */
+export interface DietFoodDraft {
+  id: string;
+  name: string;
+  quantityG: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatsG: number;
+}
+
+/** Bozza di un pasto nel giorno di dieta. */
+export interface DietMealDraft {
+  id: string;
+  type: "Colazione" | "Pranzo" | "Cena" | "Snack";
+  foodItems: DietFoodDraft[];
+}
+
+/** Bozza di un giorno di dieta. */
+export interface DietDraftDay {
+  id: string;
+  date: string; // YYYY-MM-DD
+  meals: DietMealDraft[];
+}
+
+/** Bozza completa di dieta generata/importata, mostrata prima del salvataggio. */
+export interface DietDraft {
+  id: string;
+  name: string;
+  days: DietDraftDay[];
+}
