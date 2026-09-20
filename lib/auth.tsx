@@ -26,6 +26,8 @@ interface AuthContextValue {
   register: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
+  /** Aggiorna dati utente (mock, persiste su AsyncStorage). */
+  updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -132,6 +134,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(null);
   }, []);
 
+  const updateUser = useCallback(
+    async (patch: Partial<User>) => {
+      if (!user) return;
+      const next = { ...user, ...patch } as User;
+      await AsyncStorage.setItem(USER_KEY, JSON.stringify(next));
+      setUser(next);
+    },
+    [user],
+  );
+
   const completeOnboarding = useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, "true");
     setHasCompletedOnboarding(true);
@@ -147,8 +159,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       register,
       logout,
       completeOnboarding,
+      updateUser,
     }),
-    [isLoading, token, user, hasCompletedOnboarding, login, register, logout, completeOnboarding],
+    [isLoading, token, user, hasCompletedOnboarding, login, register, logout, completeOnboarding, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
