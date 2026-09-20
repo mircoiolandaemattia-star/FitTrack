@@ -1,4 +1,5 @@
-import { Text, View, useWindowDimensions } from "react-native";
+import { useState } from "react";
+import { ScrollView, Text, View } from "react-native";
 import Svg, { Line, Rect, Text as SvgText } from "react-native-svg";
 import type { CaloriePoint } from "@/lib/progressMock";
 
@@ -9,14 +10,18 @@ type Props = {
 };
 
 export function CalorieChart({ average, target, days }: Props) {
-  const { width } = useWindowDimensions();
+  const [containerW, setContainerW] = useState(0);
   const h = 160;
   const padL = 28;
   const padR = 12;
   const padT = 12;
   const padB = 28;
-  const cardInnerW = Math.min(width - 32 - 40, 560);
-  const w = cardInnerW;
+  // Usa larghezza misurata; fallback 320 per primo render
+  const measuredW = containerW > 0 ? containerW : 320;
+  // Per 30gg le barre diventano troppo strette: garantisci min 10px per barra + gap
+  const minNeeded = days.length * 10 + (days.length - 1) * 4 + padL + padR;
+  const needsScroll = minNeeded > measuredW;
+  const w = needsScroll ? minNeeded : measuredW;
 
   if (days.length === 0) {
     return (
@@ -38,8 +43,20 @@ export function CalorieChart({ average, target, days }: Props) {
   return (
     <View className="gap-3">
       <Text className="font-inter-semibold text-sm text-foreground">Media: {average} kcal</Text>
-      <View style={{ height: h, width: w, alignSelf: "center" }}>
-        <Svg width={w} height={h}>
+      <View
+        className="w-full overflow-hidden"
+        onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}
+        style={{ height: h, width: "100%" }}
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          bounces={false}
+          contentContainerStyle={{ width: w, height: h }}
+          style={{ width: "100%", height: h }}
+          scrollEnabled={needsScroll}
+        >
+          <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
           {/* grid */}
           {[0, 1, 2, 3].map((i) => {
             const gy = padT + (i / 3) * plotH;
@@ -71,8 +88,9 @@ export function CalorieChart({ average, target, days }: Props) {
               </SvgText>
             );
           })}
-        </Svg>
-      </View>
+          </Svg>
+          </ScrollView>
+        </View>
 
       {/* Legenda */}
       <View className="flex-row items-center gap-4">

@@ -1,4 +1,5 @@
-import { Text, View, useWindowDimensions } from "react-native";
+import { useState } from "react";
+import { Text, View } from "react-native";
 import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 import type { WeightPoint } from "@/lib/progressMock";
 
@@ -10,16 +11,13 @@ type Props = {
 };
 
 export function WeightChart({ points, current, delta, goalOk }: Props) {
-  const { width } = useWindowDimensions();
-  // chart width responsive: container padding 16*2 + card padding 20*2
+  const [containerW, setContainerW] = useState(0);
   const chartH = 160;
   const padL = 28;
   const padR = 12;
   const padT = 12;
   const padB = 28;
-  // we render inside parent with flex; use 100% via onLayout? simpler fixed based on window
-  const cardInnerW = Math.min(width - 32 - 40, 560); // approx
-  const w = cardInnerW;
+  const w = containerW > 0 ? containerW : 320;
   const h = chartH;
 
   if (points.length === 0) {
@@ -62,8 +60,12 @@ export function WeightChart({ points, current, delta, goalOk }: Props) {
         <Text className="font-sans text-xs text-muted">vs inizio periodo</Text>
       </View>
 
-      <View style={{ height: h, width: w, alignSelf: "center" }}>
-        <Svg width={w} height={h}>
+      <View
+        className="w-full overflow-hidden"
+        onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}
+        style={{ height: h, width: "100%" }}
+      >
+        <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
           {/* horizontal grid */}
           {[0, 1, 2, 3].map((i) => {
             const gy = padT + (i / 3) * plotH;
