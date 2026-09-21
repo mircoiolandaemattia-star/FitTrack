@@ -21,7 +21,7 @@ export function GoalSelector({ value, weightKg, heightCm, age, gender, activityL
     <Card className="gap-4">
       <Text className="font-inter-semibold text-base text-foreground">Obiettivo</Text>
 
-      <View className="flex-row gap-2">
+      <View className="gap-2">
         {GOAL_OPTIONS.map((o) => {
           const active = value === o.key;
           return (
@@ -29,15 +29,21 @@ export function GoalSelector({ value, weightKg, heightCm, age, gender, activityL
               key={o.key}
               disabled={readOnly}
               onPress={() => onChange(o.key)}
-              className={`flex-1 items-center rounded-xl border px-3 py-3 active:opacity-80 ${active ? "border-primary bg-primary/15" : "border-border bg-background/40"} ${readOnly ? "opacity-60" : ""}`}
+              className={`rounded-xl border px-4 py-3.5 active:opacity-80 ${active ? "border-primary bg-primary/15" : "border-border bg-background/40"} ${readOnly ? "opacity-60" : ""}`}
             >
-              <Text className={`text-center font-inter-semibold text-sm ${active ? "text-primary" : "text-muted"}`}>{o.label}</Text>
+              <View className="flex-row items-center justify-between gap-2">
+                <View className="flex-1 gap-0.5">
+                  <Text className={`font-inter-semibold text-sm ${active ? "text-primary" : "text-foreground"}`}>{o.label}</Text>
+                  <Text className="font-sans text-xs leading-4 text-muted">{o.description}</Text>
+                </View>
+                <View className={`h-6 w-6 items-center justify-center rounded-full border-2 ${active ? "border-primary bg-primary" : "border-border"}`}>
+                  {active ? <View className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+                </View>
+              </View>
             </Pressable>
           );
         })}
       </View>
-
-      {selected ? <Text className="font-sans text-sm leading-5 text-muted">{selected.description}</Text> : null}
 
       {tdee ? (
         <View className="rounded-xl bg-primary/10 px-4 py-3">
