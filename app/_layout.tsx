@@ -40,25 +40,26 @@ function RootNavigator() {
     Inter_700Bold,
   });
 
-  const { isLoading, isAuthenticated, hasCompletedOnboarding } = useAuth();
+  const { isLoading, isAuthenticated, hasCompletedOnboarding, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
-  // Guard di navigazione: login → onboarding → tab.
+  // Guard di navigazione: login → onboarding (acceptedDisclaimer) → tab.
   useEffect(() => {
     if (isLoading || !fontsLoaded) return;
 
     const inAuthGroup = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
+    const needsOnboarding = !hasCompletedOnboarding || user?.acceptedDisclaimer === false;
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace("/(auth)/login");
-    } else if (isAuthenticated && !hasCompletedOnboarding && !inOnboarding) {
+    } else if (isAuthenticated && needsOnboarding && !inOnboarding) {
       router.replace("/onboarding");
-    } else if (isAuthenticated && hasCompletedOnboarding && (inAuthGroup || inOnboarding)) {
+    } else if (isAuthenticated && !needsOnboarding && (inAuthGroup || inOnboarding)) {
       router.replace("/(tabs)/home");
     }
-  }, [isLoading, fontsLoaded, isAuthenticated, hasCompletedOnboarding, segments, router]);
+  }, [isLoading, fontsLoaded, isAuthenticated, hasCompletedOnboarding, user?.acceptedDisclaimer, segments, router]);
 
   // Nascondi lo splash solo quando tutto è pronto.
   useEffect(() => {
