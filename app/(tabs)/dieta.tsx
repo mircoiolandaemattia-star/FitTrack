@@ -24,6 +24,7 @@ import { AddFoodModal } from "@/components/dieta/AddFoodModal";
 import { GenerateDietFlow } from "@/components/dieta/GenerateDietFlow";
 import { PremiumUpsellModal } from "@/components/dieta/PremiumUpsellModal";
 import { useAuth } from "@/lib/auth";
+import { useIsStandalone } from "@/lib/useStandalone";
 import {
   addDays,
   addFoodToMeal,
@@ -44,8 +45,9 @@ const WIDE_BREAKPOINT = 768;
 export default function DietaScreen() {
   const { width } = useWindowDimensions();
   const { user } = useAuth();
+  const isStandalone = useIsStandalone();
   const isWide = width >= WIDE_BREAKPOINT;
-  const isReadOnly = Platform.OS === "web" || isWide;
+  const isReadOnly = Platform.OS === "web" && !isStandalone;
   const isPremium = Boolean(user?.isPremium || user?.isTrial);
 
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -207,7 +209,9 @@ export default function DietaScreen() {
     </Pressable>
   ) : (
     <View className="rounded-2xl border border-border bg-surface px-4 py-3">
-      <Text className="text-center font-sans text-sm text-muted">Sola lettura su web/desktop — usa l'app mobile per modificare la dieta</Text>
+      <Text className="text-center font-sans text-sm text-muted">
+        {Platform.OS === "web" && !isStandalone ? "Sola lettura su browser — installa la PWA o usa l'app mobile per modificare" : "Sola lettura"}
+      </Text>
     </View>
   );
 

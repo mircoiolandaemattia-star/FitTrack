@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
+import { useIsStandalone } from "@/lib/useStandalone";
 import { PeriodSelector } from "@/components/progressi/PeriodSelector";
 import { WeightChart } from "@/components/progressi/WeightChart";
 import { CalorieChart } from "@/components/progressi/CalorieChart";
@@ -25,8 +26,9 @@ const WIDE_BP = 768;
 
 export default function ProgressiScreen() {
   const { width } = useWindowDimensions();
+  const isStandalone = useIsStandalone();
   const isWide = width >= WIDE_BP;
-  const isReadOnly = Platform.OS === "web" || isWide;
+  const isReadOnly = Platform.OS === "web" && !isStandalone;
 
   const [period, setPeriod] = useState<Period>("week");
   const [version, setVersion] = useState(0);
@@ -109,7 +111,7 @@ export default function ProgressiScreen() {
               {photosCard}
               {isReadOnly ? (
                 <View className="rounded-2xl border border-border bg-surface px-4 py-3">
-                  <Text className="text-center font-sans text-sm text-muted">Sola lettura su web/desktop — usa l'app mobile per aggiungere foto e misurazioni</Text>
+                  <Text className="text-center font-sans text-sm text-muted">Sola lettura su browser — installa la PWA per aggiungere foto e misurazioni</Text>
                 </View>
               ) : null}
             </View>

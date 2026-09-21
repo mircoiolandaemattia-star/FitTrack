@@ -1,9 +1,10 @@
-import { Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ChevronDown, ChevronUp, Dumbbell, Moon, Play } from "lucide-react-native";
 import type { WorkoutDay } from "@/types";
 import { getDayLabel } from "@/lib/mock-data";
 import { Card } from "@/components/home/Card";
+import { useIsStandalone } from "@/lib/useStandalone";
 import { ExerciseItem } from "./ExerciseItem";
 
 type WorkoutDayCardProps = {
@@ -21,8 +22,8 @@ type WorkoutDayCardProps = {
  * dove la scheda è in sola lettura).
  */
 export function WorkoutDayCard({ day, isToday = false, expanded, onToggle }: WorkoutDayCardProps) {
-  const { width } = useWindowDimensions();
-  const isReadOnly = Platform.OS === "web" || width >= 768;
+  const isStandalone = useIsStandalone();
+  const isReadOnly = Platform.OS === "web" && !isStandalone;
   const isRest = day.isRestDay;
 
   function handleStart() {

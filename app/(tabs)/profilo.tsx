@@ -12,6 +12,7 @@ import { ReminderCard } from "@/components/profilo/ReminderCard";
 import { AddReminderModal } from "@/components/profilo/AddReminderModal";
 import { SubscriptionCard, type SubscriptionState } from "@/components/profilo/SubscriptionCard";
 import { useAuth } from "@/lib/auth";
+import { useIsStandalone } from "@/lib/useStandalone";
 import { calculateTDEE, type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
 import { addReminder, deleteReminder, listReminders, toggleReminder } from "@/lib/reminders";
 
@@ -19,10 +20,11 @@ const WIDE_BP = 768;
 
 export default function ProfiloScreen() {
   const { width } = useWindowDimensions();
+  const isStandalone = useIsStandalone();
   const { user, updateUser, logout } = useAuth();
   const router = useRouter();
   const isWide = width >= WIDE_BP;
-  const isReadOnly = Platform.OS === "web" || isWide;
+  const isReadOnly = Platform.OS === "web" && !isStandalone;
 
   const [reminderVersion, setReminderVersion] = useState(0);
   const [showAddReminder, setShowAddReminder] = useState(false);
@@ -182,7 +184,7 @@ export default function ProfiloScreen() {
         <LogOut size={16} color="#EF4444" strokeWidth={2.2} />
         <Text className="font-inter-semibold text-sm text-destructive">Logout</Text>
       </Pressable>
-      {isReadOnly ? <Text className="text-center font-sans text-xs text-muted">Sola lettura su web/desktop — modifiche disabilitate tranne logout</Text> : null}
+      {isReadOnly ? <Text className="text-center font-sans text-xs text-muted">Sola lettura su browser — installa la PWA per modificare</Text> : null}
     </View>
   );
 

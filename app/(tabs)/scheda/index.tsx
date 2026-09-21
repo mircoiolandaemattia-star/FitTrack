@@ -11,6 +11,7 @@ import { useFocusEffect } from "expo-router";
 import { CheckCircle2, Moon, Plus, X } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
+import { useIsStandalone } from "@/lib/useStandalone";
 import {
   consumeWorkoutCompletedNotice,
   getDayLabel,
@@ -33,8 +34,9 @@ const WIDE_BREAKPOINT = 768;
  */
 export default function SchedaScreen() {
   const { width } = useWindowDimensions();
+  const isStandalone = useIsStandalone();
   const isWide = width >= WIDE_BREAKPOINT;
-  const isInteractive = Platform.OS !== "web" && !isWide;
+  const isInteractive = !(Platform.OS === "web" && !isStandalone);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedDayId, setExpandedDayId] = useState<string | null>(() => {
@@ -131,7 +133,7 @@ export default function SchedaScreen() {
             <Text className="mt-1 font-sans text-sm text-muted">
               {isInteractive
                 ? "Piano settimanale e storico delle sessioni"
-                : "Sola lettura: usa l'app mobile per modificare la scheda"}
+                : "Sola lettura su browser — installa la PWA per modificare"}
             </Text>
           </View>
           {isInteractive ? (

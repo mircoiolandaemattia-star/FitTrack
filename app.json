@@ -36,7 +36,9 @@
       "name": "FitTrack",
       "shortName": "FitTrack",
       "themeColor": "#0f172a",
-      "backgroundColor": "#0f172a"
+      "backgroundColor": "#0f172a",
+      "display": "standalone",
+      "startUrl": "/"
     },
     "plugins": [
       "expo-router",
