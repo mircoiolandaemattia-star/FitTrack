@@ -13,7 +13,8 @@ function isEmailValid(v: string): boolean {
 
 export default function RegisterScreen() {
   const { register } = useAuth();
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -21,22 +22,24 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const nameValid = name.trim().length >= 2;
+  const firstNameValid = firstName.trim().length >= 2;
+  const lastNameValid = lastName.trim().length >= 2;
   const emailValid = isEmailValid(email);
   const pwStrength = getPasswordStrength(password);
   const pwValid = password.length >= 6;
   const confirmValid = confirmPassword.length > 0 && confirmPassword === password;
 
   const canSubmit = useMemo(() => {
-    return nameValid && emailValid && pwValid && confirmValid && accepted && !submitting;
-  }, [nameValid, emailValid, pwValid, confirmValid, accepted, submitting]);
+    return firstNameValid && lastNameValid && emailValid && pwValid && confirmValid && accepted && !submitting;
+  }, [firstNameValid, lastNameValid, emailValid, pwValid, confirmValid, accepted, submitting]);
 
   async function handleRegister() {
     if (!canSubmit) return;
     setError(null);
     setSubmitting(true);
     try {
-      await register(name.trim(), email.trim(), password);
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
+      await register(fullName, email.trim(), password);
       router.replace("/");
     } catch {
       setError("Registrazione non riuscita. Riprova.");
@@ -57,15 +60,34 @@ export default function RegisterScreen() {
         </View>
 
         <View className="gap-4">
-          <AuthInput
-            icon={<User size={16} color="#94A3B8" />}
-            placeholder="Nome completo"
-            autoComplete="name"
-            value={name}
-            onChangeText={setName}
-            error={!!name && !nameValid}
-            errorMessage={!!name && !nameValid ? "Inserisci almeno 2 caratteri" : undefined}
-          />
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <AuthInput
+                icon={<User size={16} color="#94A3B8" />}
+                placeholder="Nome"
+                autoComplete="given-name"
+                textContentType="givenName"
+                autoCapitalize="words"
+                value={firstName}
+                onChangeText={setFirstName}
+                error={!!firstName && !firstNameValid}
+                errorMessage={!!firstName && !firstNameValid ? "Min 2 caratteri" : undefined}
+              />
+            </View>
+            <View className="flex-1">
+              <AuthInput
+                icon={<User size={16} color="#94A3B8" />}
+                placeholder="Cognome"
+                autoComplete="family-name"
+                textContentType="familyName"
+                autoCapitalize="words"
+                value={lastName}
+                onChangeText={setLastName}
+                error={!!lastName && !lastNameValid}
+                errorMessage={!!lastName && !lastNameValid ? "Min 2 caratteri" : undefined}
+              />
+            </View>
+          </View>
           <AuthInput
             icon={<Mail size={16} color="#94A3B8" />}
             placeholder="Email"

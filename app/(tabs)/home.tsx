@@ -43,9 +43,9 @@ export default function HomeScreen() {
 
   const displayName = useMemo(() => {
     if (!user?.name) return "";
-    const n = user.name.trim();
-    if (!n) return "";
-    return n.charAt(0).toUpperCase() + n.slice(1);
+    const first = user.name.trim().split(/\s+/)[0];
+    if (!first) return "";
+    return first.charAt(0).toUpperCase() + first.slice(1);
   }, [user?.name]);
 
   const data = useMemo(
