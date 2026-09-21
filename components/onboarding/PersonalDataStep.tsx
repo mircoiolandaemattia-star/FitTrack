@@ -33,39 +33,66 @@ export function PersonalDataStep({ value, onChange }: Props) {
 
       <AuthInput
         icon={<User size={16} color="#94A3B8" />}
-        placeholder="Nome"
+        placeholder="Es. Mario Rossi"
         autoComplete="name"
+        textContentType="name"
+        autoCapitalize="words"
+        returnKeyType="next"
         value={value.name}
         onChangeText={(t) => set("name", t)}
       />
-      <View className="flex-row gap-3">
-        <View className="flex-1">
-          <AuthInput
-            icon={<Calendar size={16} color="#94A3B8" />}
-            placeholder="Età"
-            keyboardType="number-pad"
-            value={value.age}
-            onChangeText={(t) => set("age", t.replace(/[^0-9]/g, ""))}
-          />
+
+      <View className="gap-1.5">
+        <View className="flex-row items-center gap-3">
+          <View className="flex-1 flex-row items-center gap-2">
+            <View className="flex-1">
+              <AuthInput
+                icon={<Calendar size={16} color="#94A3B8" />}
+                placeholder="Es. 28"
+                keyboardType="number-pad"
+                inputMode="numeric"
+                returnKeyType="next"
+                value={value.age}
+                onChangeText={(t) => set("age", t.replace(/[^0-9]/g, ""))}
+              />
+            </View>
+            <Text className="font-inter-semibold text-sm text-muted">anni</Text>
+          </View>
+          <View className="flex-1 flex-row items-center gap-2">
+            <View className="flex-1">
+              <AuthInput
+                icon={<Weight size={16} color="#94A3B8" />}
+                placeholder="Es. 70"
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                returnKeyType="next"
+                value={value.weight}
+                onChangeText={(t) => set("weight", t.replace(/[^0-9.,]/g, "").replace(",", "."))}
+              />
+            </View>
+            <Text className="font-inter-semibold text-sm text-muted">kg</Text>
+          </View>
         </View>
-        <View className="flex-1">
-          <AuthInput
-            icon={<Weight size={16} color="#94A3B8" />}
-            placeholder="Peso (kg)"
-            keyboardType="decimal-pad"
-            value={value.weight}
-            onChangeText={(t) => set("weight", t.replace(/[^0-9.,]/g, "").replace(",", "."))}
-          />
-        </View>
+        <Text className="px-1 font-sans text-xs text-muted">Età e peso servono per il calcolo calorico</Text>
       </View>
 
-      <AuthInput
-        icon={<Ruler size={16} color="#94A3B8" />}
-        placeholder="Altezza (cm)"
-        keyboardType="number-pad"
-        value={value.height}
-        onChangeText={(t) => set("height", t.replace(/[^0-9]/g, ""))}
-      />
+      <View className="gap-1.5">
+        <View className="flex-row items-center gap-2">
+          <View className="flex-1">
+            <AuthInput
+              icon={<Ruler size={16} color="#94A3B8" />}
+              placeholder="Es. 175"
+              keyboardType="number-pad"
+              inputMode="numeric"
+              returnKeyType="done"
+              value={value.height}
+              onChangeText={(t) => set("height", t.replace(/[^0-9]/g, ""))}
+            />
+          </View>
+          <Text className="font-inter-semibold text-sm text-muted">cm</Text>
+        </View>
+        <Text className="px-1 font-sans text-xs text-muted">Esempio: 175 cm</Text>
+      </View>
 
       <View className="gap-2">
         <View className="flex-row items-center gap-1.5">
