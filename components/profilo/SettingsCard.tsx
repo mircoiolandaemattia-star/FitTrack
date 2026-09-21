@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Alert, Platform, Pressable, Switch, Text, View } from "react-native";
-import * as Notifications from "expo-notifications";
 import { Card } from "@/components/home/Card";
 
 type Props = {
@@ -16,23 +15,33 @@ export function SettingsCard({ readOnly = false }: Props) {
 
   async function handleNotifToggle(value: boolean) {
     if (readOnly) return;
-    if (value) {
-      try {
-        const perm = await Notifications.getPermissionsAsync();
-        let status = perm.status;
-        if (status !== "granted") {
-          const req = await Notifications.requestPermissionsAsync();
-          status = req.status;
-        }
-        if (status !== "granted") {
-          Alert.alert("Permesso negato", "Abilita le notifiche dalle impostazioni di sistema.");
-          return;
-        }
-      } catch {
-        // su web expo-notifications può non essere disponibile: mock ok
-      }
+    if (!value) {
+      setNotif(false);
+      return;
     }
-    setNotif(value);
+    // Web: no permessi nativi, toggle diretto
+    if (Platform.OS === "web") {
+      setNotif(true);
+      return;
+    }
+    // Su Expo Go SDK 53+ le push remote sono rimosse: evita crash con import dinamico
+    try {
+      const Notifications = await import("expo-notifications");
+      const perm = await Notifications.getPermissionsAsync();
+      let status = perm.status;
+      if (status !== "granted") {
+        const req = await Notifications.requestPermissionsAsync();
+        status = req.status;
+      }
+      if (status !== "granted") {
+        Alert.alert("Permesso negato", "Abilita le notifiche dalle impostazioni di sistema.");
+        return;
+      }
+    } catch {
+      // Expo Go SDK 53+: modulo rimosso → mock attivo senza crash
+      Alert.alert("Expo Go", "Notifiche push non disponibili in Expo Go (SDK 53+). Usa un development build. Attivo in modalità mock.");
+    }
+    setNotif(true);
   }
 
   function handleLangPress() {
