@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { Screen } from "@/components/Screen";
+import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { useAuth } from "@/lib/auth";
 import {
   getQuickStats,
@@ -79,6 +80,8 @@ export default function HomeScreen() {
           </Text>
           <Text className="font-sans text-sm leading-5 text-muted">{data.dateLabel}</Text>
         </View>
+
+        <PWAInstallBanner />
 
       {isWide ? (
         /* Layout desktop: 2 colonne */
