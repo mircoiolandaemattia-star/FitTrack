@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
 import {
   getQuickStats,
@@ -40,6 +41,13 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
 
+  const displayName = useMemo(() => {
+    if (!user?.name) return "";
+    const n = user.name.trim();
+    if (!n) return "";
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  }, [user?.name]);
+
   const data = useMemo(
     () => ({
       greeting: getGreeting(new Date()),
@@ -52,20 +60,25 @@ export default function HomeScreen() {
   );
 
   return (
-    <ScrollView
-      className="flex-1"
-      contentContainerClassName={`w-full gap-6 px-4 py-6 ${
-        isWide ? "mx-auto max-w-5xl px-6" : ""
-      }`}
-    >
-      {/* Header */}
-      <View className="w-full">
-        <Text className="font-inter-bold text-3xl text-foreground">
-          {data.greeting}
-          {user?.name ? `, ${user.name}` : ""}
-        </Text>
-        <Text className="mt-1 font-sans text-sm text-muted">{data.dateLabel}</Text>
-      </View>
+    <Screen>
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName={`w-full gap-6 px-4 py-6 ${
+          isWide ? "mx-auto max-w-5xl px-6" : ""
+        }`}
+      >
+        {/* Header — fix Android: safe-area via Screen + wrapping + capitalizzazione nome */}
+        <View className="w-full gap-1">
+          <Text
+            className="font-inter-bold text-[28px] leading-[34px] text-foreground"
+            numberOfLines={2}
+            style={{ flexShrink: 1 }}
+          >
+            {data.greeting}
+            {displayName ? `, ${displayName}` : ""}
+          </Text>
+          <Text className="font-sans text-sm leading-5 text-muted">{data.dateLabel}</Text>
+        </View>
 
       {isWide ? (
         /* Layout desktop: 2 colonne */
@@ -91,6 +104,7 @@ export default function HomeScreen() {
           <QuickStats stats={data.stats} />
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </Screen>
   );
 }
