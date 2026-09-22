@@ -21,6 +21,17 @@ const WEB_THEME_CSS = `
     flex-direction: column;
     min-height: 100vh;
   }
+  /* iOS Safari e Android Chrome zoomano automaticamente la pagina quando
+     un campo di testo ha font-size < 16px. Su schermi touch alziamo la
+     base dei campi a 16px: niente zoom indesiderato, pinch-zoom resta
+     disponibile per l'accessibilità. */
+  @media (max-width: 768px), (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 `;
 
 export default function Root({ children }: PropsWithChildren) {
