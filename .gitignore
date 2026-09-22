@@ -45,3 +45,6 @@ example
 # Skill e tool locali
 /.opencode/
 /.idea/
+
+# Password DB locali (non versionare mai)
+.dbpasswd.txt
