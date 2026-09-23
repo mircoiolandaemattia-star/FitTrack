@@ -1,0 +1,66 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Runner macos-26: Xcode default 26.6 (>= 26.4, minimo Expo SDK 57)
+      - name: Verifica Xcode
+        run: xcodebuild -version
+
+      # postinstall applica il patch di expo-modules-jsi (scripts/patch-jsi.js)
+      - name: Dipendenze
+        run: npm ci
+
+      # /ios e' in .gitignore: il progetto viene rigenerato qui
+      - name: Prebuild iOS
+        run: npx expo prebuild -p ios --no-install
+
+      - name: CocoaPods
+        working-directory: ios
+        run: pod install
+
+      # Xcode non eredita il PATH di setup-node: indica esplicitamente node
+      - name: NODE_BINARY
+        run: echo "export NODE_BINARY=$(which node)" > ios/.xcode.env.local
+
+      - name: Build .app (non firmato)
+        run: |
+          xcodebuild \
+            -workspace ios/FitTrack.xcworkspace \
+            -scheme FitTrack \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Pacchetta .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/FitTrack.app Payload/
+          zip -qr FitTrack.ipa Payload
+          ls -lh FitTrack.ipa
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FitTrack-unsigned
+          path: FitTrack.ipa
+          if-no-files-found: error
