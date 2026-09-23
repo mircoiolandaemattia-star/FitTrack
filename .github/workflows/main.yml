@@ -1,0 +1,51 @@
+name: Build iOS (unsigned)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prebuild (generate native iOS project)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: CocoaPods install
+        working-directory: ios
+        run: pod install
+
+      - name: Build & Archive (no signing)
+        working-directory: ios
+        run: |
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          APP_PATH=$(find $RUNNER_TEMP/App.xcarchive/Products/Applications -name "*.app" -maxdepth 1)
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -R "$APP_PATH" $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r App.ipa Payload/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: App-unsigned
+          path: ${{ runner.temp }}/App.ipa   
