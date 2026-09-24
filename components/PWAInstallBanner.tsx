@@ -21,7 +21,12 @@ export function PWAInstallBanner() {
   const isWebMobile = Platform.OS === "web" && width < 768 && !isStandalone;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // Solo su web: su React Native window === global e NON esistono
+    // window.addEventListener né localStorage → "undefined is not a
+    // function" e crash silenzioso all'avvio (niente red screen in Release).
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    if (typeof window.addEventListener !== "function") return;
+
     const stored = window.localStorage?.getItem(DISMISS_KEY);
     if (stored === "1") setDismissed(true);
 
