@@ -1,7 +1,7 @@
 {
   "name": "fittrack",
   "license": "0BSD",
-  "main": "index.js",
+  "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
