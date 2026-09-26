@@ -6,6 +6,12 @@
  */
 
 export interface ApiRequest {
+  /**
+   * Utente autenticato: claim `sub` del JWT Supabase verificato dal
+   * middleware `requireAuth`. Non arriva mai dal client (né query né
+   * body): è l'unico identificativo di cui fidarsi.
+   */
+  user_id: string;
   /** Path params estratti da Express (`/api/workout-plans/:id` → `{ id }`). */
   params: Record<string, string>;
   /** Query string non validata: la validazione spetta all'handler (zod). */

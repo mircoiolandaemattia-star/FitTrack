@@ -5,10 +5,15 @@ import { createApp } from "./app";
 // process.env.PORT, mai una porta fissa.
 const port = Number(process.env.PORT ?? 3000);
 
-if (!process.env.DATABASE_URL) {
+// Variabili obbligatorie a runtime (vedi .env.example). `src/lib/prisma`
+// carica `.env` in locale all'import, quindi qui il check è affidabile.
+const missingEnv = ["DATABASE_URL", "SUPABASE_JWT_SECRET", "ALLOWED_ORIGIN"].filter(
+  (name) => !process.env[name],
+);
+if (missingEnv.length > 0) {
   console.error(
-    "[fittrack-api] DATABASE_URL mancante: imposta la variabile d'ambiente " +
-      "(vedi .env.example → Variabili d'ambiente runtime).",
+    `[fittrack-api] Variabili d'ambiente mancanti: ${missingEnv.join(", ")}. ` +
+      "Vedi .env.example → Variabili d'ambiente runtime.",
   );
   process.exit(1);
 }

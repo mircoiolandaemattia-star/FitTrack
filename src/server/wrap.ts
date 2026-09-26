@@ -1,9 +1,15 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { HttpError } from "../api/errors";
 import type { ApiRequest, Handler } from "../api/types";
 
 /** Traduce la richiesta Express nel tipo puro che capiscono gli handler. */
 export function toApiRequest(req: Request): ApiRequest {
+  if (!req.user_id) {
+    // Difesa: `wrap` va montato solo dietro `requireAuth` (vedi app.ts).
+    throw new HttpError(401, "UNAUTHENTICATED", "Utente non autenticato.");
+  }
   return {
+    user_id: req.user_id,
     params: (req.params ?? {}) as Record<string, string>,
     query: (req.query ?? {}) as Record<string, unknown>,
     body: req.body as unknown,

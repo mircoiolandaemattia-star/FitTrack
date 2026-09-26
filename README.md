@@ -60,7 +60,7 @@ types/index.ts            modelli dati (User, Workout*, Diet*, ecc.)
 design-system/            documentazione design system (MASTER.md)
 src/                      backend Express (vedi sezione Backend)
 prisma/                   schema Prisma + migrazioni (12 tabelle)
-scripts/smoke-api.py      smoke test HTTP del backend (27 test)
+scripts/smoke-api.py      smoke test HTTP del backend (36 test)
 ```
 
 ## Flusso di navigazione
@@ -87,8 +87,8 @@ API REST Express pensata per **Render Web Service** (processo persistente, non
 serverless): `npm run build` poi `npm start`.
 
 Il client API (`lib/api.ts`) usa `EXPO_PUBLIC_API_URL` (default
-`http://localhost:3000/api`); l'autenticazione è ancora mock: sulle route non
-c'è ancora il middleware JWT (i handler leggono `user_id` da query/body).
+`http://localhost:3000/api`) e manda già il JWT di Supabase Auth in
+`Authorization: Bearer` (lo legge da AsyncStorage).
 
 ### Architettura a handler puri
 
@@ -101,9 +101,10 @@ src/
 │   ├── workoutPlans.ts  CRUD workout_plans
 │   └── workoutDays.ts   CRUD workout_days
 ├── server/              Express: solo wrapper sottili
+│   ├── auth.ts          requireAuth: verifica JWT Supabase → req.user_id
 │   ├── wrap.ts          parsing input → handler → output
 │   ├── routes.ts        verbo + path + nome handler (zero logica business)
-│   ├── app.ts           /health, mount route, 404, middleware errori
+│   ├── app.ts           /health, CORS, mount route, 404, middleware errori
 │   └── index.ts         ascolta su process.env.PORT, chiusura SIGTERM
 └── lib/prisma.ts        singleton PrismaClient
 ```
@@ -114,6 +115,7 @@ Prisma) e `src/api/errors.ts` è l'unico punto che li traduce in status:
 
 | Sorgente | Status | `error.code` |
 | --- | --- | --- |
+| token assente/scaduto/non valido | 401 | `UNAUTHENTICATED` |
 | zod, input non valido | 400 | `VALIDATION_ERROR` |
 | body parser, JSON malformato | 400 | `INVALID_JSON` |
 | `HttpError` | assegnato | `BAD_REQUEST` / `NOT_FOUND` / `ROUTE_NOT_FOUND` |
@@ -123,18 +125,45 @@ Prisma) e `src/api/errors.ts` è l'unico punto che li traduce in status:
 | DB non raggiungibile | 503 | `DATABASE_UNAVAILABLE` |
 | tutto il resto | 500 | `INTERNAL_ERROR` (dettagli solo nei log) |
 
+### Autenticazione JWT
+
+Tutte le route `/api` passano per `requireAuth` (`src/server/auth.ts`), che
+verifica i token emessi da **Supabase Auth** — login, registrazione e refresh
+restano lato Supabase, qui non li reinventiamo:
+
+1. legge `Authorization: Bearer <token>`;
+2. verifica la firma HS256 contro `SUPABASE_JWT_SECRET` (solo env, mai
+   hardcoded) e la scadenza `exp`, con `algorithms: ["HS256"]` esplicito
+   (niente `alg=none` né confusione di algoritmo);
+3. estrae l'uuid dal claim `sub` e lo mette in `req.user_id`: gli handler
+   leggono l'utente solo da lì (`ApiRequest.user_id`), **mai da query o
+   body**, quindi un client non può fingersi un altro utente;
+4. token assente o non valido → `401 UNAUTHENTICATED` attraverso lo stesso
+   adapter centralizzato (nessun codice di errore duplicato).
+
+Di conseguenza `user_id` non è più un campo di input ed è sparito dalla
+validazione zod. Gli endpoint `:id` sono **scoped per proprietà**: una risorsa
+di un altro utente e una risorsa inesistente rispondono entrambe `404`, senza
+rivelare l'esistenza dell'id (protezione IDOR/BOLA).
+
+Note: la anon key di Supabase non ha il claim `sub` e viene scartata; `/health`
+resta senza auth perché lo health check di Render non può mandare token; i
+progetti cloud con *Custom Access Token Keys* (asimmetriche) richiedono la
+verifica via JWKS e qui il middleware andrebbe esteso.
+
 ### Endpoint
 
 | Metodo | Percorso | Note |
 | --- | --- | --- |
-| GET | `/health` | `200 OK` — health check di Render |
-| GET | `/api/workout-plans?user_id=` | lista per utente (obbligatorio) |
-| POST | `/api/workout-plans` | `201` |
+| GET | `/health` | `200 OK` — health check di Render, unica rota senza auth |
+| GET | `/api/workout-plans` | lista propria: nessun parametro, utente dal token |
+| POST | `/api/workout-plans` | `201`, `user_id` preso dal token |
 | GET / PUT / DELETE | `/api/workout-plans/:id` | DELETE in cascata su days + exercises |
 | GET | `/api/workout-days?workout_plan_id=` | lista per piano (obbligatorio) |
 | POST | `/api/workout-days` | `201` |
 | GET / PUT / DELETE | `/api/workout-days/:id` | DELETE in cascata su exercises |
 
+Tutte le route `/api` richiedono `Authorization: Bearer <JWT Supabase>`.
 DELETE risponde `204` senza corpo; gli errori rispondono
 `{"error": {"code", "message", "details?"}}`. Ogni input (query, path, body)
 è validato con zod.
@@ -144,6 +173,10 @@ DELETE risponde `204` senza corpo; gli errori rispondono
 Solo nomi, i valori si impostano nel dashboard di Render (vedi `.env.example`):
 
 - `DATABASE_URL` — **obbligatoria**, pooler Supabase (porta 6543, `?pgbouncer=true`)
+- `SUPABASE_JWT_SECRET` — **obbligatoria**, secret JWT HS256 del progetto
+  (Dashboard → Settings → API → JWT Secret) per verificare i token Auth
+- `ALLOWED_ORIGIN` — **obbligatoria**, origin abilitate al CORS separate da
+  virgola (nessuna apertura a tutte le origini)
 - `GEMINI_API_KEY` — in seguito, feature AI (non ancora usata)
 - `RESEND_API_KEY` — in seguito, email transazionali (non ancora usata)
 
@@ -155,12 +188,18 @@ fissa); `DIRECT_URL` serve solo alle migrazioni Prisma, non a runtime.
 ```bash
 npx supabase start                # DB locale (una volta)
 PORT=3000 npm start               # il client Prisma carica .env da solo
-python3 scripts/smoke-api.py      # 27/27 test
+python3 scripts/smoke-api.py      # 36/36 test
 ```
 
-Senza `PORT` il server usa 3000; senza `DATABASE_URL` (né `.env`) esce con
-codice 1 e un messaggio esplicito, così un deploy mal configurato fallisce
-subito invece di dare errori a runtime.
+Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da
+`.env`): si esercita il percorso reale di verifica, senza bypass dell'auth, e
+copre anche token mancanti/malformati/firmati male/scaduti e l'isolamento fra
+utenti.
+
+Senza `PORT` il server usa 3000; se mancano `DATABASE_URL`,
+`SUPABASE_JWT_SECRET` o `ALLOWED_ORIGIN` (né `.env`) esce con codice 1 ed elenca
+le variabili mancanti, così un deploy mal configurato fallisce subito invece di
+dare errori a runtime.
 
 ## Approfondimenti
 
