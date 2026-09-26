@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model users {
+  id                      String    @id @default(uuid())
+  email                   String    @unique
+  name                    String
+  birth_date              DateTime?
+  gender                  String? // "male" | "female" | "other"
+  height_cm               Float?
+  goal                    String // "lose" | "maintain" | "gain"
+  activity_level          String // "sedentary" | "light" | "moderate" | "active" | "very_active"
+  daily_calorie_target    Int?
+  protein_target_g        Int?
+  carbs_target_g          Int?
+  fat_target_g            Int?
+  subscription_status     String    @default("free") // "free" | "premium"
+  subscription_expires_at DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  workout_plans     workout_plans[]
+  workout_sessions  workout_sessions[]
+  diet_plans        diet_plans[]
+  meals             meals[]
+  body_measurements body_measurements[]
+  progress_photos   progress_photos[]
+  reminders         reminders[]
+  ai_usage_log      ai_usage_log[]
+}
+
+model workout_plans {
+  id         String   @id @default(uuid())
+  user_id    String
+  name       String
+  source     String // "manual" | "ai" | "upload"
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user             users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  workout_days     workout_days[]
+  workout_sessions workout_sessions[]
+}
+
+model workout_days {
+  id              String   @id @default(uuid())
+  workout_plan_id String
+  name            String
+  day_order       Int
+  created_at      DateTime @default(now())
+
+  workout_plan     workout_plans     @relation(fields: [workout_plan_id], references: [id], onDelete: Cascade)
+  exercises        exercises[]
+  workout_sessions workout_sessions[]
+}
+
+model exercises {
+  id              String   @id @default(uuid())
+  workout_day_id  String
+  name            String
+  sets            Int
+  reps            Int
+  weight_kg       Float?
+  rest_seconds    Int?
+  order_index     Int
+  notes           String?
+
+  workout_day workout_days @relation(fields: [workout_day_id], references: [id], onDelete: Cascade)
+}
+
+model workout_sessions {
+  id              String    @id @default(uuid())
+  user_id         String
+  workout_plan_id String?
+  workout_day_id  String?
+  started_at      DateTime
+  completed_at    DateTime?
+  performed_data  Json? // [{exercise_id, sets:[{reps, weight_kg}]}]
+  notes           String?
+
+  user         users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  workout_plan workout_plans? @relation(fields: [workout_plan_id], references: [id], onDelete: SetNull)
+  workout_day  workout_days?  @relation(fields: [workout_day_id], references: [id], onDelete: SetNull)
+}
+
+model diet_plans {
+  id                    String   @id @default(uuid())
+  user_id               String
+  name                  String
+  source                String // "manual" | "ai" | "upload"
+  is_active             Boolean  @default(true)
+  daily_calorie_target  Int?
+  protein_g             Int?
+  carbs_g               Int?
+  fat_g                 Int?
+  created_at            DateTime @default(now())
+
+  user  users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  meals meals[]
+}
+
+model meals {
+  id           String   @id @default(uuid())
+  user_id      String
+  diet_plan_id String?
+  meal_type    String // "breakfast" | "lunch" | "dinner" | "snack"
+  date         DateTime
+  name         String?
+  created_at   DateTime @default(now())
+
+  user      users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  diet_plan diet_plans?  @relation(fields: [diet_plan_id], references: [id])
+  food_items food_items[]
+}
+
+model food_items {
+  id          String   @id @default(uuid())
+  meal_id     String
+  name        String
+  quantity_g  Float?
+  calories    Int
+  protein_g   Float
+  carbs_g     Float
+  fat_g       Float
+  source      String // "barcode" | "photo" | "manual" | "upload"
+  barcode     String?
+  photo_url   String?
+  created_at  DateTime @default(now())
+
+  meal meals @relation(fields: [meal_id], references: [id], onDelete: Cascade)
+}
+
+model body_measurements {
+  id         String   @id @default(uuid())
+  user_id    String
+  date       DateTime
+  weight_kg  Float?
+  waist_cm   Float?
+  hips_cm    Float?
+  chest_cm   Float?
+  arms_cm    Float?
+  created_at DateTime @default(now())
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model progress_photos {
+  id         String   @id @default(uuid())
+  user_id    String
+  date       DateTime
+  photo_url  String
+  created_at DateTime @default(now())
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model reminders {
+  id            String   @id @default(uuid())
+  user_id       String
+  type          String // "workout" | "meal" | "measurement" | "custom"
+  time          String // "HH:MM"
+  days_of_week  Int[]
+  message       String?
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model ai_usage_log {
+  id       String   @id @default(uuid())
+  user_id  String
+  feature  String // "photo_meal" | "workout_generation" | "diet_generation" | "file_upload"
+  used_at  DateTime @default(now())
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}

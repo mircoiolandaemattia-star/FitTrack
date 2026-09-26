@@ -32,6 +32,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+# credenziali DB locale (solo .env.example è versionato)
+/.env
 
 # typescript
 *.tsbuildinfo
