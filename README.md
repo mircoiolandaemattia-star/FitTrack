@@ -58,6 +58,9 @@ lib/
   └── storage.ts          helper AsyncStorage
 types/index.ts            modelli dati (User, Workout*, Diet*, ecc.)
 design-system/            documentazione design system (MASTER.md)
+src/                      backend Express (vedi sezione Backend)
+prisma/                   schema Prisma + migrazioni (12 tabelle)
+scripts/smoke-api.py      smoke test HTTP del backend (27 test)
 ```
 
 ## Flusso di navigazione
@@ -69,7 +72,9 @@ Il redirect è gestito nel guard di `app/_layout.tsx` in base allo stato di aute
 
 | Comando          | Descrizione                        |
 | ---------------- | ---------------------------------- |
-| `npm start`      | Dev server                         |
+| `npm run build`  | Build backend (install + prisma generate + tsc) |
+| `npm start`      | Backend compilato su `process.env.PORT` |
+| `npm run start:app` | Dev server Expo (in precedenza `npm start`) |
 | `npm run android`| Emulatore/dispositivo Android      |
 | `npm run ios`    | Simulatore iOS                     |
 | `npm run web`    | Web nel browser                    |
@@ -78,8 +83,84 @@ Il redirect è gestito nel guard di `app/_layout.tsx` in base allo stato di aute
 
 ## Backend
 
-Il client API (`lib/api.ts`) usa `EXPO_PUBLIC_API_URL` (default `http://localhost:3000/api`).
-Copia `.env.example` → `.env` per personalizzarla. L'autenticazione è mock fino al backend reale.
+API REST Express pensata per **Render Web Service** (processo persistente, non
+serverless): `npm run build` poi `npm start`.
+
+Il client API (`lib/api.ts`) usa `EXPO_PUBLIC_API_URL` (default
+`http://localhost:3000/api`); l'autenticazione è ancora mock: sulle route non
+c'è ancora il middleware JWT (i handler leggono `user_id` da query/body).
+
+### Architettura a handler puri
+
+```
+src/
+├── api/                 handler puri, nessun riferimento a Express
+│   ├── types.ts         ApiRequest / ApiResponse / Handler
+│   ├── errors.ts        adapter centralizzato degli errori
+│   ├── validate.ts      parse(): zod → ZodError
+│   ├── workoutPlans.ts  CRUD workout_plans
+│   └── workoutDays.ts   CRUD workout_days
+├── server/              Express: solo wrapper sottili
+│   ├── wrap.ts          parsing input → handler → output
+│   ├── routes.ts        verbo + path + nome handler (zero logica business)
+│   ├── app.ts           /health, mount route, 404, middleware errori
+│   └── index.ts         ascolta su process.env.PORT, chiusura SIGTERM
+└── lib/prisma.ts        singleton PrismaClient
+```
+
+Un handler ha la firma `async (req: ApiRequest) => Promise<ApiResponse>`: si
+testa senza HTTP. Gli handler **lanciano** (`HttpError`, `ZodError`, errori
+Prisma) e `src/api/errors.ts` è l'unico punto che li traduce in status:
+
+| Sorgente | Status | `error.code` |
+| --- | --- | --- |
+| zod, input non valido | 400 | `VALIDATION_ERROR` |
+| body parser, JSON malformato | 400 | `INVALID_JSON` |
+| `HttpError` | assegnato | `BAD_REQUEST` / `NOT_FOUND` / `ROUTE_NOT_FOUND` |
+| Prisma P2002 (unicità) | 409 | `UNIQUE_VIOLATION` |
+| Prisma P2003 (foreign key) | 422 | `FOREIGN_KEY_VIOLATION` |
+| Prisma P2025 (record assente) | 404 | `NOT_FOUND` |
+| DB non raggiungibile | 503 | `DATABASE_UNAVAILABLE` |
+| tutto il resto | 500 | `INTERNAL_ERROR` (dettagli solo nei log) |
+
+### Endpoint
+
+| Metodo | Percorso | Note |
+| --- | --- | --- |
+| GET | `/health` | `200 OK` — health check di Render |
+| GET | `/api/workout-plans?user_id=` | lista per utente (obbligatorio) |
+| POST | `/api/workout-plans` | `201` |
+| GET / PUT / DELETE | `/api/workout-plans/:id` | DELETE in cascata su days + exercises |
+| GET | `/api/workout-days?workout_plan_id=` | lista per piano (obbligatorio) |
+| POST | `/api/workout-days` | `201` |
+| GET / PUT / DELETE | `/api/workout-days/:id` | DELETE in cascata su exercises |
+
+DELETE risponde `204` senza corpo; gli errori rispondono
+`{"error": {"code", "message", "details?"}}`. Ogni input (query, path, body)
+è validato con zod.
+
+### Variabili d'ambiente runtime
+
+Solo nomi, i valori si impostano nel dashboard di Render (vedi `.env.example`):
+
+- `DATABASE_URL` — **obbligatoria**, pooler Supabase (porta 6543, `?pgbouncer=true`)
+- `GEMINI_API_KEY` — in seguito, feature AI (non ancora usata)
+- `RESEND_API_KEY` — in seguito, email transazionali (non ancora usata)
+
+`PORT` la fornisce Render (il server usa `process.env.PORT`, nessuna porta
+fissa); `DIRECT_URL` serve solo alle migrazioni Prisma, non a runtime.
+
+### Verifica locale
+
+```bash
+npx supabase start                # DB locale (una volta)
+PORT=3000 npm start               # il client Prisma carica .env da solo
+python3 scripts/smoke-api.py      # 27/27 test
+```
+
+Senza `PORT` il server usa 3000; senza `DATABASE_URL` (né `.env`) esce con
+codice 1 e un messaggio esplicito, così un deploy mal configurato fallisce
+subito invece di dare errori a runtime.
 
 ## Approfondimenti
 
