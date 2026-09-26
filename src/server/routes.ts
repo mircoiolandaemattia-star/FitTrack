@@ -1,4 +1,5 @@
 import { Router } from "express";
+import * as workoutDays from "../api/workoutDays";
 import * as workoutPlans from "../api/workoutPlans";
 import { wrap } from "./wrap";
 
@@ -14,6 +15,12 @@ export function apiRouter(): Router {
   router.get("/workout-plans/:id", wrap(workoutPlans.getWorkoutPlan));
   router.put("/workout-plans/:id", wrap(workoutPlans.updateWorkoutPlan));
   router.delete("/workout-plans/:id", wrap(workoutPlans.deleteWorkoutPlan));
+
+  router.get("/workout-days", wrap(workoutDays.listWorkoutDays));
+  router.post("/workout-days", wrap(workoutDays.createWorkoutDay));
+  router.get("/workout-days/:id", wrap(workoutDays.getWorkoutDay));
+  router.put("/workout-days/:id", wrap(workoutDays.updateWorkoutDay));
+  router.delete("/workout-days/:id", wrap(workoutDays.deleteWorkoutDay));
 
   return router;
 }
