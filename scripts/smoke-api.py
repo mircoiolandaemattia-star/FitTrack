@@ -1,4 +1,5 @@
-"""Smoke test HTTP per il backend FitTrack (workout_plans + workout_days).
+"""Smoke test HTTP per il backend FitTrack (profilo users + workout_plans
++ workout_days).
 
 Richiede il Supabase locale attivo (npx supabase start) e il server avviato:
   PORT=3000 npm start
@@ -9,9 +10,11 @@ così si esercita il percorso reale di verifica: nessun bypass d'auth.
 Uso: python3 scripts/smoke-api.py   (API_BASE per cambiare la base URL)
 """
 import base64
+import datetime
 import hashlib
 import hmac
 import json
+import math
 import os
 import subprocess
 import sys
@@ -24,6 +27,8 @@ from pathlib import Path
 BASE = os.environ.get("API_BASE", "http://127.0.0.1:3000")
 USER_ID = str(uuid.uuid4())      # utente "proprietario" dei dati del test
 OTHER_ID = str(uuid.uuid4())     # utente autenticato ma estraneo (test IDOR)
+ONBOARD_ID = str(uuid.uuid4())   # utente senza riga users: fa l'onboarding
+ONBOARD_EMAIL = "onboarding@test.it"
 TOKEN = ""                       # token valido per USER_ID, impostato in main()
 results = []
 
@@ -46,7 +51,7 @@ def b64url(data: bytes) -> str:
 
 
 def make_token(secret: str, *, sub=USER_ID, expires_in=3600,
-               sign_with=None, with_sub=True) -> str:
+               sign_with=None, with_sub=True, email=None) -> str:
     """JWT HS256 firmato con hmac: identico nella forma a quelli di Supabase Auth."""
     now = int(time.time())
     header = {"alg": "HS256", "typ": "JWT"}
@@ -54,6 +59,8 @@ def make_token(secret: str, *, sub=USER_ID, expires_in=3600,
                "iat": now, "exp": now + expires_in}
     if with_sub:
         payload["sub"] = sub
+    if email:
+        payload["email"] = email
     signing_input = (
         f"{b64url(json.dumps(header, separators=(',', ':')).encode())}."
         f"{b64url(json.dumps(payload, separators=(',', ':')).encode())}"
@@ -61,6 +68,39 @@ def make_token(secret: str, *, sub=USER_ID, expires_in=3600,
     key = (sign_with or secret).encode()
     sig = hmac.new(key, signing_input.encode(), hashlib.sha256).digest()
     return f"{signing_input}.{b64url(sig)}"
+
+
+# ------------------------------------------------- TDEE atteso (per i test)
+
+ACTIVITY_MULTIPLIER = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55,
+                       "active": 1.725, "very_active": 1.9}
+GOAL_ADJUSTMENT = {"lose": 0.8, "maintain": 1.0, "gain": 1.1}
+
+
+def js_round(x: float) -> int:
+    """Math.round() di JS (metà per eccesso): non il round banker di Python."""
+    return math.floor(x + 0.5)
+
+
+def expected_targets(birth: datetime.date, gender: str, height: float,
+                     weight: float, goal: str, activity: str) -> dict:
+    """Ricalcola la formula del backend in modo indipendente, operazione per
+    operazione nella stessa identica sequenza, così il confronto è esatto."""
+    today = datetime.date.today()
+    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    base = 10 * weight + 6.25 * height - 5 * age
+    if gender == "male":
+        bmr = base + 5
+    elif gender == "female":
+        bmr = base - 161
+    else:
+        bmr = base + (5 - 161) / 2
+    calories = js_round(bmr * ACTIVITY_MULTIPLIER[activity] * GOAL_ADJUSTMENT[goal])
+    protein = js_round(1.8 * weight)
+    fat = js_round(calories * 0.25 / 9)
+    carbs = js_round((calories - protein * 4 - fat * 9) / 4)
+    return {"daily_calorie_target": calories, "protein_target_g": protein,
+            "carbs_target_g": carbs, "fat_target_g": fat}
 
 
 # ------------------------------------------------------------------ helpers
@@ -119,7 +159,7 @@ def run(name, method, path, *, status, code=None, body=None, raw=None,
 
 def main():
     global TOKEN
-    TOKEN = make_token(load_secret())
+    TOKEN = make_token(load_secret(), email="smoke@test.it")
 
     # attesa server ( /health è l'unica rota senza auth )
     for _ in range(50):
@@ -239,7 +279,7 @@ def main():
             status=404, code="NOT_FOUND")
 
         # --- isolamento fra utenti (IDOR/BOLA): altro utente autenticato
-        intruder = make_token(load_secret(), sub=OTHER_ID)
+        intruder = make_token(load_secret(), sub=OTHER_ID, email="intruder@test.it")
 
         def empty_list(payload):
             return payload == [], str(payload)[:300]
@@ -262,6 +302,70 @@ def main():
             "/api/workout-days",
             body={"workout_plan_id": plan_id, "name": "intruso", "day_order": 9},
             status=404, code="NOT_FOUND", token=intruder)
+
+        # --- profilo utente / onboarding (una riga per utente, nessun :id)
+        onboard_token = make_token(load_secret(), sub=ONBOARD_ID, email=ONBOARD_EMAIL)
+        birth = datetime.date(1990, 5, 20)
+        onboard_body = {
+            "name": "Mario Rossi", "birth_date": "1990-05-20", "gender": "male",
+            "height_cm": 180, "weight_kg": 80, "goal": "lose",
+            "activity_level": "moderate",
+            # colonne di identità nel body: devono essere ignorate (dal token)
+            "id": OTHER_ID, "email": "evil@attacker.it",
+        }
+        expected = expected_targets(birth, "male", 180, 80, "lose", "moderate")
+
+        def targets_are(want):
+            def check(payload):
+                got = {k: payload.get(k) for k in want}
+                return got == want, json.dumps(got)
+            return check
+
+        def onboarding_created(payload):
+            ok_targets, detail = targets_are(expected)(payload)
+            ok = (payload.get("id") == ONBOARD_ID and payload.get("email") == ONBOARD_EMAIL
+                  and payload.get("name") == "Mario Rossi"
+                  and payload.get("weight_kg") == 80 and ok_targets)
+            return ok, f"id={payload.get('id')} email={payload.get('email')} {detail}"
+
+        run("GET /users/me senza onboarding → 404", "GET", "/api/users/me",
+            status=404, code="NOT_FOUND", token=onboard_token)
+        run("POST /users corpo incompleto → 400", "POST", "/api/users",
+            body={"name": "x"}, status=400, code="VALIDATION_ERROR",
+            token=onboard_token)
+        run("POST /users token senza claim email → 400 EMAIL_MISSING", "POST",
+            "/api/users", body=onboard_body, status=400, code="EMAIL_MISSING",
+            token=make_token(load_secret(), sub=ONBOARD_ID))
+        run("POST /users (onboarding) → 201 con TDEE atteso", "POST",
+            "/api/users", body=onboard_body, status=201, token=onboard_token,
+            test=onboarding_created)
+        run("POST /users due volte → 409 CONFLICT", "POST", "/api/users",
+            body=onboard_body, status=409, code="CONFLICT", token=onboard_token)
+        run("GET /users/me → 200 con i target salvati", "GET", "/api/users/me",
+            status=200, token=onboard_token, test=targets_are(expected))
+        run("Altro utente: GET /users/me → 404 (profilo proprio assente)", "GET",
+            "/api/users/me", status=404, code="NOT_FOUND", token=intruder)
+        run("GET /users/:id → 404 ROUTE_NOT_FOUND (nessuna rota con :id)",
+            "GET", f"/api/users/{ONBOARD_ID}", status=404,
+            code="ROUTE_NOT_FOUND", token=intruder)
+        run("POST /users nascita futura → 400", "POST", "/api/users",
+            body={**onboard_body, "birth_date": "2999-01-01"}, status=400,
+            code="VALIDATION_ERROR", token=onboard_token)
+
+        # ricalcolo TDEE: cambiano weight_kg e goal → stessa formula del POST
+        expected2 = expected_targets(birth, "male", 180, 90, "gain", "moderate")
+
+        run("PUT /users/me (weight_kg + goal) → 200 con TDEE ricalcolato", "PUT",
+            "/api/users/me", body={"weight_kg": 90, "goal": "gain"},
+            status=200, token=onboard_token, test=targets_are(expected2))
+        run("PUT /users/me (solo name) → 200, target invariati", "PUT",
+            "/api/users/me", body={"name": "Mario B."}, status=200,
+            token=onboard_token, test=targets_are(expected2))
+        run("PUT /users/me corpo vuoto → 400", "PUT", "/api/users/me", body={},
+            status=400, code="BAD_REQUEST", token=onboard_token)
+        run("PUT /users/me goal non ammesso → 400", "PUT", "/api/users/me",
+            body={"goal": "bulk"}, status=400, code="VALIDATION_ERROR",
+            token=onboard_token)
 
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
@@ -288,7 +392,7 @@ def main():
         record("cascata: nessun giorno residuo del piano", days == "0",
                f"righe workout_days residue: {days}")
     finally:
-        psql(f"DELETE FROM users WHERE id='{USER_ID}';")
+        psql(f"DELETE FROM users WHERE id IN ('{USER_ID}','{ONBOARD_ID}');")
 
     failed = 0
     for name, ok, info, detail in results:

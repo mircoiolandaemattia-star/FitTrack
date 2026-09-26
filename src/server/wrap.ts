@@ -10,6 +10,7 @@ export function toApiRequest(req: Request): ApiRequest {
   }
   return {
     user_id: req.user_id,
+    email: req.email,
     params: (req.params ?? {}) as Record<string, string>,
     query: (req.query ?? {}) as Record<string, unknown>,
     body: req.body as unknown,

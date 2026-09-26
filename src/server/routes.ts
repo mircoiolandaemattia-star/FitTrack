@@ -1,4 +1,5 @@
 import { Router } from "express";
+import * as users from "../api/users";
 import * as workoutDays from "../api/workoutDays";
 import * as workoutPlans from "../api/workoutPlans";
 import { wrap } from "./wrap";
@@ -9,6 +10,11 @@ import { wrap } from "./wrap";
  */
 export function apiRouter(): Router {
   const router = Router();
+
+  // Profilo: niente `:id` (una riga per utente, sempre da req.user_id)
+  router.post("/users", wrap(users.createUser));
+  router.get("/users/me", wrap(users.getMe));
+  router.put("/users/me", wrap(users.updateMe));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));

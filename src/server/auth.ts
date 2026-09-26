@@ -7,8 +7,21 @@ declare global {
     interface Request {
       /** Popolato da `requireAuth`: claim `sub` del JWT Supabase verificato. */
       user_id?: string;
+      /** Popolato da `requireAuth`: claim `email` del JWT (opzionale, vedi sotto). */
+      email?: string;
     }
   }
+}
+
+/** Token verificato: identità dell'utente, sempre estratta dal JWT. */
+export interface VerifiedToken {
+  user_id: string;
+  /**
+   * Claim `email`: presente nei token di chi si autentica via email, assente
+   * per altri canali (es. telefono). Opzionale: gli handler che ne hanno
+   * bisogno gestiscono l'assenza.
+   */
+  email?: string;
 }
 
 /** Estrae il token da `Authorization: Bearer <token>`, altrimenti 401. */
@@ -40,7 +53,7 @@ function bearerToken(req: Request): string {
  * Non reinventiamo login/registrazione/refresh: restano lato Supabase Auth,
  * qui verifichiamo solo i token che il client ci presenta.
  */
-export function verifySupabaseToken(token: string): string {
+export function verifySupabaseToken(token: string): VerifiedToken {
   const secret = process.env.SUPABASE_JWT_SECRET;
   if (!secret) {
     // Configurazione mancante: non è un problema del client, va a 5xx
@@ -67,16 +80,22 @@ export function verifySupabaseToken(token: string): string {
     // La anon key di Supabase non ha `sub`: viene scartata qui
     throw new HttpError(401, "UNAUTHENTICATED", "Token senza utente (claim sub assente).");
   }
-  return payload.sub;
+  return {
+    user_id: payload.sub,
+    email: typeof payload.email === "string" ? payload.email : undefined,
+  };
 }
 
 /**
  * Middleware per tutte le route `/api`: verifica il token e popola
- * `req.user_id`. Gli errori finiscono nell'adapter centralizzato.
+ * `req.user_id` (e `req.email`, claim opzionale). Gli errori finiscono
+ * nell'adapter centralizzato.
  */
 export const requireAuth: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {
   try {
-    req.user_id = verifySupabaseToken(bearerToken(req));
+    const { user_id, email } = verifySupabaseToken(bearerToken(req));
+    req.user_id = user_id;
+    req.email = email;
     next();
   } catch (error) {
     next(error);

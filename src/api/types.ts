@@ -12,6 +12,12 @@ export interface ApiRequest {
    * body): è l'unico identificativo di cui fidarsi.
    */
   user_id: string;
+  /**
+   * Claim `email` del JWT Supabase (opzionale: non tutti i token lo
+   * contengono, es. auth via telefono). Alimenta `users.email` (NOT NULL):
+   * come `user_id` è identità ed arriva solo dal token, mai dal body.
+   */
+  email?: string;
   /** Path params estratti da Express (`/api/workout-plans/:id` → `{ id }`). */
   params: Record<string, string>;
   /** Query string non validata: la validazione spetta all'handler (zod). */

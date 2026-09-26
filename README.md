@@ -99,7 +99,9 @@ src/
 │   ├── errors.ts        adapter centralizzato degli errori
 │   ├── validate.ts      parse(): zod → ZodError
 │   ├── workoutPlans.ts  CRUD workout_plans
-│   └── workoutDays.ts   CRUD workout_days
+│   ├── workoutDays.ts   CRUD workout_days
+│   ├── users.ts         profilo: onboarding (POST) + /me (GET, PUT)
+│   └── lib/tdee.ts      formula TDEE: unica, usata da POST e PUT /users
 ├── server/              Express: solo wrapper sottili
 │   ├── auth.ts          requireAuth: verifica JWT Supabase → req.user_id
 │   ├── wrap.ts          parsing input → handler → output
@@ -118,7 +120,7 @@ Prisma) e `src/api/errors.ts` è l'unico punto che li traduce in status:
 | token assente/scaduto/non valido | 401 | `UNAUTHENTICATED` |
 | zod, input non valido | 400 | `VALIDATION_ERROR` |
 | body parser, JSON malformato | 400 | `INVALID_JSON` |
-| `HttpError` | assegnato | `BAD_REQUEST` / `NOT_FOUND` / `ROUTE_NOT_FOUND` |
+| `HttpError` | assegnato | `BAD_REQUEST` / `NOT_FOUND` / `ROUTE_NOT_FOUND` / `CONFLICT` / `EMAIL_MISSING` |
 | Prisma P2002 (unicità) | 409 | `UNIQUE_VIOLATION` |
 | Prisma P2003 (foreign key) | 422 | `FOREIGN_KEY_VIOLATION` |
 | Prisma P2025 (record assente) | 404 | `NOT_FOUND` |
@@ -137,7 +139,9 @@ restano lato Supabase, qui non li reinventiamo:
    (niente `alg=none` né confusione di algoritmo);
 3. estrae l'uuid dal claim `sub` e lo mette in `req.user_id`: gli handler
    leggono l'utente solo da lì (`ApiRequest.user_id`), **mai da query o
-   body**, quindi un client non può fingersi un altro utente;
+   body**, quindi un client non può fingersi un altro utente. Estrae anche
+   il claim `email` (opzionale: non tutti i token lo contengono) in
+   `req.email`, usato da `users.email` — anche quello mai dal body;
 4. token assente o non valido → `401 UNAUTHENTICATED` attraverso lo stesso
    adapter centralizzato (nessun codice di errore duplicato).
 
@@ -156,6 +160,8 @@ verifica via JWKS e qui il middleware andrebbe esteso.
 | Metodo | Percorso | Note |
 | --- | --- | --- |
 | GET | `/health` | `200 OK` — health check di Render, unica rota senza auth |
+| POST | `/api/users` | `201` onboarding (una tantum, poi `409 CONFLICT`): calcola i target TDEE; `id`/`email` dal token |
+| GET / PUT | `/api/users/me` | solo il profilo proprio (nessun `:id`): `404` se l'onboarding non è fatto; PUT ricalcola il TDEE se cambiano i campi della formula |
 | GET | `/api/workout-plans` | lista propria: nessun parametro, utente dal token |
 | POST | `/api/workout-plans` | `201`, `user_id` preso dal token |
 | GET / PUT / DELETE | `/api/workout-plans/:id` | DELETE in cascata su days + exercises |
@@ -188,7 +194,7 @@ fissa); `DIRECT_URL` serve solo alle migrazioni Prisma, non a runtime.
 ```bash
 npx supabase start                # DB locale (una volta)
 PORT=3000 npm start               # il client Prisma carica .env da solo
-python3 scripts/smoke-api.py      # 36/36 test
+python3 scripts/smoke-api.py      # 49/49 test
 ```
 
 Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da

@@ -15,6 +15,7 @@ model users {
   birth_date              DateTime?
   gender                  String? // "male" | "female" | "other"
   height_cm               Float?
+  weight_kg               Float?
   goal                    String // "lose" | "maintain" | "gain"
   activity_level          String // "sedentary" | "light" | "moderate" | "active" | "very_active"
   daily_calorie_target    Int?
