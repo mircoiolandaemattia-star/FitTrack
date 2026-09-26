@@ -1,0 +1,28 @@
+/**
+ * Contratto fra i handler puri di `src/api` e il layer Express di
+ * `src/server`. Nessuno di questi tipi (e nessun file di `src/api`)
+ * importa Express: i test possono chiamare gli handler con oggetti
+ * letterali, senza passare da un server HTTP.
+ */
+
+export interface ApiRequest {
+  /** Path params estratti da Express (`/api/workout-plans/:id` → `{ id }`). */
+  params: Record<string, string>;
+  /** Query string non validata: la validazione spetta all'handler (zod). */
+  query: Record<string, unknown>;
+  /** Body JSON (`undefined` se assente o non parsato). Idem: validato dall'handler. */
+  body: unknown;
+}
+
+export interface ApiResponse {
+  /** Status HTTP da restituire (200, 201, 204, ...). */
+  status: number;
+  /**
+   * Payload: viene inviato così com'è come JSON.
+   * `undefined` → nessun corpo (tipico per il 204).
+   */
+  body?: unknown;
+}
+
+/** Un handler puro: prende una richiesta, restituisce una risposta o lancia. */
+export type Handler = (req: ApiRequest) => Promise<ApiResponse>;

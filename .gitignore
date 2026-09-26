@@ -38,6 +38,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# backend compilato (build su Render)
+dist-server/
+
 example
 
 # generated native folders
