@@ -729,6 +729,112 @@ def main():
         record("DELETE meal due volte → 404 (P2025)", status == 404,
                f"atteso 404, ricevuto {status}", text[:200])
 
+        # --- CRUD food_items (annidati sotto meals)
+        food_ids = []
+
+        def food_created(payload):
+            food_ids.append(payload["id"])
+            ok = (payload["meal_id"] == meal_id and payload["name"] == "Riso basmati"
+                  and payload["calories"] == 350 and payload["source"] == "manual"
+                  and payload["protein_g"] == 7.5 and payload["quantity_g"] == 160)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /food-items → 201", "POST", "/api/food-items",
+            body={"meal_id": meal_id, "name": "Riso basmati", "quantity_g": 160,
+                  "calories": 350, "protein_g": 7.5, "carbs_g": 78, "fat_g": 0.8,
+                  "source": "manual"},
+            status=201, test=food_created)
+        food_id = food_ids[0]
+
+        def food_created_2(payload):
+            food_ids.append(payload["id"])
+            ok = (payload["source"] == "barcode"
+                  and payload["barcode"] == "8001234567890")
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /food-items (secondo, per il DELETE)", "POST",
+            "/api/food-items",
+            body={"meal_id": meal_id, "name": "Petto di pollo", "calories": 210,
+                  "protein_g": 35, "carbs_g": 0, "fat_g": 3, "source": "barcode",
+                  "barcode": "8001234567890"},
+            status=201, test=food_created_2)
+        food_delete_id = food_ids[1]
+
+        run("POST /food-items source non ammesso → 400", "POST",
+            "/api/food-items",
+            body={"meal_id": meal_id, "name": "x", "calories": 1, "protein_g": 0,
+                  "carbs_g": 0, "fat_g": 0, "source": "telepatia"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /food-items corpo incompleto → 400", "POST",
+            "/api/food-items", body={"meal_id": meal_id, "name": "x"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /food-items su pasto inesistente → 422 (P2003)", "POST",
+            "/api/food-items",
+            body={"meal_id": str(uuid.uuid4()), "name": "x", "calories": 1,
+                  "protein_g": 0, "carbs_g": 0, "fat_g": 0, "source": "manual"},
+            status=422, code="FOREIGN_KEY_VIOLATION")
+        run("Altro utente: POST food-item sul nostro pasto → 404", "POST",
+            "/api/food-items",
+            body={"meal_id": meal_id, "name": "intruso", "calories": 1,
+                  "protein_g": 0, "carbs_g": 0, "fat_g": 0, "source": "manual"},
+            status=404, code="NOT_FOUND", token=intruder)
+
+        def two_foods(payload):
+            ids = [f["id"] for f in payload]
+            return ids == food_ids, str(ids)[:300]
+
+        run("GET /food-items senza meal_id → 400", "GET", "/api/food-items",
+            status=400, code="VALIDATION_ERROR")
+        run("GET /food-items?meal_id → 200 lista", "GET",
+            f"/api/food-items?meal_id={meal_id}", status=200, test=two_foods)
+        run("Altro utente: lista alimenti del nostro pasto → 200 vuota", "GET",
+            f"/api/food-items?meal_id={meal_id}", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("GET /food-items/:id → 200", "GET", f"/api/food-items/{food_id}",
+            status=200, test=lambda p: (p["id"] == food_id, str(p)[:300]))
+        run("GET /food-items/:id inesistente → 404", "GET",
+            f"/api/food-items/{uuid.uuid4()}", status=404, code="NOT_FOUND")
+        run("PUT /food-items/:id → 200", "PUT", f"/api/food-items/{food_id}",
+            body={"name": "Riso basmati integrale", "calories": 360},
+            status=200,
+            test=lambda p: (p["name"] == "Riso basmati integrale"
+                            and p["calories"] == 360, str(p)[:300]))
+        run("PUT /food-items corpo vuoto → 400", "PUT",
+            f"/api/food-items/{food_id}", body={}, status=400,
+            code="BAD_REQUEST")
+        run("PUT /food-items/:id inesistente → 404 (P2025)", "PUT",
+            f"/api/food-items/{uuid.uuid4()}", body={"name": "x"},
+            status=404, code="NOT_FOUND")
+        run("Altro utente: GET food-item altrui → 404", "GET",
+            f"/api/food-items/{food_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT food-item altrui → 404", "PUT",
+            f"/api/food-items/{food_id}", body={"name": "hacker"}, status=404,
+            code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE food-item altrui → 404", "DELETE",
+            f"/api/food-items/{food_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sul secondo alimento
+        status, _ = req("DELETE", f"/api/food-items/{food_delete_id}")
+        record("DELETE /food-items/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/food-items/{food_delete_id}")
+        record("DELETE food-item due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+
+        # il pasto ha ancora "Riso basmati": DELETE del pasto -> cascata
+        status, _ = req("DELETE", f"/api/meals/{meal_id}")
+        record("DELETE /meals con alimenti dentro → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        leftover_food = subprocess.run(
+            ["docker", "exec", "supabase_db_FitTrack", "psql", "-U", "postgres",
+             "-d", "postgres", "-tAc",
+             f"select count(*) from food_items where meal_id='{meal_id}'"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        record("cascata: nessun food_item residuo del pasto",
+               leftover_food == "0", f"righe food_items residue: {leftover_food}")
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,

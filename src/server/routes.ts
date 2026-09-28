@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
+import * as foodItems from "../api/foodItems";
 import * as meals from "../api/meals";
 import * as users from "../api/users";
 import * as workoutDays from "../api/workoutDays";
@@ -43,6 +44,12 @@ export function apiRouter(): Router {
   router.get("/meals/:id", wrap(meals.getMeal));
   router.put("/meals/:id", wrap(meals.updateMeal));
   router.delete("/meals/:id", wrap(meals.deleteMeal));
+
+  router.get("/food-items", wrap(foodItems.listFoodItems));
+  router.post("/food-items", wrap(foodItems.createFoodItem));
+  router.get("/food-items/:id", wrap(foodItems.getFoodItem));
+  router.put("/food-items/:id", wrap(foodItems.updateFoodItem));
+  router.delete("/food-items/:id", wrap(foodItems.deleteFoodItem));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));
