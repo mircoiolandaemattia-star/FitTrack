@@ -629,6 +629,106 @@ def main():
         record("DELETE dieta due volte → 404 (P2025)", status == 404,
                f"atteso 404, ricevuto {status}", text[:200])
 
+        # --- CRUD meals (filtro data obbligatorio, diet_plan opzionale)
+        meal_ids = []
+        lunch_date = "2026-09-27"
+
+        def meal_created(payload):
+            meal_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID
+                  and payload["diet_plan_id"] == diet_id
+                  and payload["meal_type"] == "lunch"
+                  and payload["date"][:10] == lunch_date
+                  and payload["name"] == "Riso e pollo")
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /meals → 201 (user_id dal token)", "POST", "/api/meals",
+            body={"diet_plan_id": diet_id, "meal_type": "lunch",
+                  "date": lunch_date, "name": "Riso e pollo",
+                  "user_id": OTHER_ID},
+            status=201, test=meal_created)
+        meal_id = meal_ids[0]
+
+        def meal_created_min(payload):
+            meal_ids.append(payload["id"])
+            ok = (payload["diet_plan_id"] is None and payload["name"] is None
+                  and payload["meal_type"] == "snack")
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /meals minimo → 201 (pasto libero, senza piano)", "POST",
+            "/api/meals", body={"meal_type": "snack", "date": lunch_date},
+            status=201, test=meal_created_min)
+        snack_id = meal_ids[1]
+
+        run("POST /meals meal_type non ammesso → 400", "POST", "/api/meals",
+            body={"meal_type": "brunch", "date": lunch_date},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /meals data non valida → 400", "POST", "/api/meals",
+            body={"meal_type": "lunch", "date": "27-09-2026"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /meals con dieta inesistente → 422 (P2003)", "POST",
+            "/api/meals",
+            body={"meal_type": "lunch", "date": lunch_date,
+                  "diet_plan_id": str(uuid.uuid4())},
+            status=422, code="FOREIGN_KEY_VIOLATION")
+        run("Altro utente: POST meal sulla nostra dieta → 404", "POST",
+            "/api/meals",
+            body={"meal_type": "lunch", "date": lunch_date,
+                  "diet_plan_id": diet_id},
+            status=404, code="NOT_FOUND", token=intruder)
+
+        def two_meals(payload):
+            ids = [m["id"] for m in payload]
+            return ids == meal_ids, str(ids)[:300]
+
+        run("GET /meals senza filtro → 400", "GET", "/api/meals",
+            status=400, code="VALIDATION_ERROR")
+        run("GET /meals?date → 200 (i due pasti del giorno)", "GET",
+            f"/api/meals?date={lunch_date}", status=200, test=two_meals)
+        run("GET /meals?from&to → 200 (estremi inclusi)", "GET",
+            f"/api/meals?from={lunch_date}&to={lunch_date}", status=200,
+            test=two_meals)
+        run("GET /meals?from>to → 400", "GET",
+            "/api/meals?from=2026-09-28&to=2026-09-27", status=400,
+            code="VALIDATION_ERROR")
+        run("GET /meals?date altro giorno → 200 vuota", "GET",
+            "/api/meals?date=2026-01-01", status=200,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("Altro utente: GET meals del nostro giorno → 200 vuota", "GET",
+            f"/api/meals?date={lunch_date}", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("GET /meals/:id → 200", "GET", f"/api/meals/{meal_id}",
+            status=200, test=lambda p: (p["id"] == meal_id, str(p)[:300]))
+        run("GET /meals/:id inesistente → 404", "GET",
+            f"/api/meals/{uuid.uuid4()}", status=404, code="NOT_FOUND")
+        run("PUT /meals/:id → 200", "PUT", f"/api/meals/{meal_id}",
+            body={"name": "Riso e pollo integrali", "meal_type": "dinner"},
+            status=200,
+            test=lambda p: (p["name"] == "Riso e pollo integrali"
+                            and p["meal_type"] == "dinner", str(p)[:300]))
+        run("PUT /meals corpo vuoto → 400", "PUT", f"/api/meals/{meal_id}",
+            body={}, status=400, code="BAD_REQUEST")
+        run("PUT /meals/:id inesistente → 404 (P2025)", "PUT",
+            f"/api/meals/{uuid.uuid4()}", body={"name": "x"},
+            status=404, code="NOT_FOUND")
+        run("Altro utente: GET meal altrui → 404", "GET",
+            f"/api/meals/{meal_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT meal altrui → 404", "PUT",
+            f"/api/meals/{meal_id}", body={"name": "hacker"}, status=404,
+            code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE meal altrui → 404", "DELETE",
+            f"/api/meals/{meal_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sullo snack (il pranzo serve a /food-items)
+        status, _ = req("DELETE", f"/api/meals/{snack_id}")
+        record("DELETE /meals/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/meals/{snack_id}")
+        record("DELETE meal due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
