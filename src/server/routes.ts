@@ -5,6 +5,7 @@ import * as exercises from "../api/exercises";
 import * as foodItems from "../api/foodItems";
 import * as meals from "../api/meals";
 import * as progressPhotos from "../api/progressPhotos";
+import * as reminders from "../api/reminders";
 import * as users from "../api/users";
 import * as workoutDays from "../api/workoutDays";
 import * as workoutPlans from "../api/workoutPlans";
@@ -63,6 +64,12 @@ export function apiRouter(): Router {
   router.get("/progress-photos", wrap(progressPhotos.listProgressPhotos));
   router.post("/progress-photos", wrap(progressPhotos.createProgressPhoto));
   router.delete("/progress-photos/:id", wrap(progressPhotos.deleteProgressPhoto));
+
+  router.get("/reminders", wrap(reminders.listReminders));
+  router.post("/reminders", wrap(reminders.createReminder));
+  router.get("/reminders/:id", wrap(reminders.getReminder));
+  router.put("/reminders/:id", wrap(reminders.updateReminder));
+  router.delete("/reminders/:id", wrap(reminders.deleteReminder));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));

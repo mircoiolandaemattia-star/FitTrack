@@ -1015,6 +1015,102 @@ def main():
         run("GET /progress-photos dopo DELETE → 200 con una foto", "GET",
             "/api/progress-photos", status=200, test=only_first_photo)
 
+        # --- CRUD reminders (time "HH:MM", days_of_week interi 0-6)
+        rem_ids = []
+
+        def rem_created(payload):
+            rem_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID and payload["type"] == "workout"
+                  and payload["time"] == "07:30"
+                  and payload["days_of_week"] == [1, 3, 5]
+                  and payload["is_active"] is True
+                  and payload["message"] == "Allenamento")
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /reminders → 201 (user_id dal token)", "POST",
+            "/api/reminders",
+            body={"type": "workout", "time": "07:30", "days_of_week": [1, 3, 5],
+                  "message": "Allenamento", "user_id": OTHER_ID},
+            status=201, test=rem_created)
+        rem_id = rem_ids[0]
+
+        def rem_created_2(payload):
+            rem_ids.append(payload["id"])
+            ok = (payload["is_active"] is True and payload["message"] is None
+                  and payload["days_of_week"] == [0, 6])
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /reminders minimo → 201 (is_active di default)", "POST",
+            "/api/reminders",
+            body={"type": "meal", "time": "12:30", "days_of_week": [0, 6]},
+            status=201, test=rem_created_2)
+        rem_delete_id = rem_ids[1]
+
+        run("POST /reminders time senza zero iniziale → 400", "POST",
+            "/api/reminders",
+            body={"type": "custom", "time": "7:30", "days_of_week": [1]},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /reminders time fuori range → 400", "POST",
+            "/api/reminders",
+            body={"type": "custom", "time": "25:00", "days_of_week": [1]},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /reminders days vuoto → 400", "POST", "/api/reminders",
+            body={"type": "custom", "time": "08:00", "days_of_week": []},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /reminders day fuori 0-6 → 400", "POST", "/api/reminders",
+            body={"type": "custom", "time": "08:00", "days_of_week": [7]},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /reminders corpo incompleto → 400", "POST", "/api/reminders",
+            body={"type": "custom"}, status=400, code="VALIDATION_ERROR")
+
+        def two_reminders(payload):
+            ids = [r["id"] for r in payload]
+            # ordinamento per time: 07:30 prima di 12:30
+            return ids == rem_ids, str(ids)[:300]
+
+        run("GET /reminders → 200 lista propria", "GET", "/api/reminders",
+            status=200, test=two_reminders)
+        run("Altro utente: lista promemoria → 200 vuota", "GET",
+            "/api/reminders", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("GET /reminders/:id → 200", "GET", f"/api/reminders/{rem_id}",
+            status=200, test=lambda p: (p["id"] == rem_id, str(p)[:300]))
+        run("GET /reminders/:id inesistente → 404", "GET",
+            f"/api/reminders/{uuid.uuid4()}", status=404, code="NOT_FOUND")
+        run("PUT /reminders/:id → 200", "PUT", f"/api/reminders/{rem_id}",
+            body={"time": "06:45", "is_active": False, "message": "Sveglia"},
+            status=200,
+            test=lambda p: (p["time"] == "06:45" and p["is_active"] is False
+                            and p["message"] == "Sveglia", str(p)[:300]))
+        run("PUT /reminders corpo vuoto → 400", "PUT",
+            f"/api/reminders/{rem_id}", body={}, status=400, code="BAD_REQUEST")
+        run("PUT /reminders time invalido → 400", "PUT",
+            f"/api/reminders/{rem_id}", body={"time": "9:5"},
+            status=400, code="VALIDATION_ERROR")
+        run("PUT /reminders/:id inesistente → 404 (P2025)", "PUT",
+            f"/api/reminders/{uuid.uuid4()}", body={"time": "08:00"},
+            status=404, code="NOT_FOUND")
+        run("Altro utente: GET promemoria altrui → 404", "GET",
+            f"/api/reminders/{rem_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT promemoria altrui → 404", "PUT",
+            f"/api/reminders/{rem_id}", body={"time": "00:01"}, status=404,
+            code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE promemoria altrui → 404", "DELETE",
+            f"/api/reminders/{rem_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sul secondo promemoria
+        status, _ = req("DELETE", f"/api/reminders/{rem_delete_id}")
+        record("DELETE /reminders/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/reminders/{rem_delete_id}")
+        record("DELETE promemoria due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+        run("GET /reminders dopo DELETE → 200 con uno", "GET",
+            "/api/reminders", status=200,
+            test=lambda p: ([r["id"] for r in p] == [rem_id], str(p)[:300]))
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
