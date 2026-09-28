@@ -1,4 +1,5 @@
 import { Router } from "express";
+import * as aiUsageLog from "../api/aiUsageLog";
 import * as bodyMeasurements from "../api/bodyMeasurements";
 import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
@@ -70,6 +71,10 @@ export function apiRouter(): Router {
   router.get("/reminders/:id", wrap(reminders.getReminder));
   router.put("/reminders/:id", wrap(reminders.updateReminder));
   router.delete("/reminders/:id", wrap(reminders.deleteReminder));
+
+  // Log in append + conteggio: nessun PUT/DELETE, nessuna lista
+  router.post("/ai-usage-log", wrap(aiUsageLog.logAiUsage));
+  router.get("/ai-usage-log/today", wrap(aiUsageLog.todayAiUsage));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));

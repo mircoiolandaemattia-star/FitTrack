@@ -1111,6 +1111,60 @@ def main():
             "/api/reminders", status=200,
             test=lambda p: ([r["id"] for r in p] == [rem_id], str(p)[:300]))
 
+        # --- ai_usage_log: solo POST + conteggio di oggi (limite piano free)
+        run("GET /ai-usage-log/today → 200 count 0 (nessun uso)", "GET",
+            "/api/ai-usage-log/today?feature=photo_meal", status=200,
+            test=lambda p: (p == {"feature": "photo_meal", "count": 0},
+                            json.dumps(p)))
+
+        # uso di giorni scorsi: fuori dalla giornata odierna, non deve contare
+        psql(f"INSERT INTO ai_usage_log (id, user_id, feature, used_at) "
+             f"VALUES ('{uuid.uuid4()}','{USER_ID}','photo_meal',"
+             f" now() - interval '2 days');")
+        run("GET /ai-usage-log/today ignora gli usi passati → count 0", "GET",
+            "/api/ai-usage-log/today?feature=photo_meal", status=200,
+            test=lambda p: (p["count"] == 0, json.dumps(p)))
+
+        def usage_logged(payload):
+            ok = (payload["user_id"] == USER_ID
+                  and payload["feature"] == "photo_meal"
+                  and payload["used_at"] is not None)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /ai-usage-log → 201 (user_id dal token)", "POST",
+            "/api/ai-usage-log", body={"feature": "photo_meal"},
+            status=201, test=usage_logged)
+        run("GET /ai-usage-log/today → count 1", "GET",
+            "/api/ai-usage-log/today?feature=photo_meal", status=200,
+            test=lambda p: (p["count"] == 1, json.dumps(p)))
+
+        run("POST /ai-usage-log (secondo uso) → 201", "POST",
+            "/api/ai-usage-log",
+            body={"feature": "photo_meal", "user_id": OTHER_ID},
+            status=201, test=lambda p: (p["user_id"] == USER_ID, str(p)[:300]))
+        run("GET /ai-usage-log/today → count 2 (limite free raggiunto)", "GET",
+            "/api/ai-usage-log/today?feature=photo_meal", status=200,
+            test=lambda p: (p["count"] == 2, json.dumps(p)))
+        run("GET /ai-usage-log/today altra feature → count 0", "GET",
+            "/api/ai-usage-log/today?feature=workout_generation", status=200,
+            test=lambda p: (p["count"] == 0, json.dumps(p)))
+        run("Altro utente: GET today → count 0 (scoping)", "GET",
+            "/api/ai-usage-log/today?feature=photo_meal", status=200,
+            token=intruder, test=lambda p: (p["count"] == 0, json.dumps(p)))
+        run("POST /ai-usage-log feature non ammessa → 400", "POST",
+            "/api/ai-usage-log", body={"feature": "mago"},
+            status=400, code="VALIDATION_ERROR")
+        run("GET /ai-usage-log/today senza feature → 400", "GET",
+            "/api/ai-usage-log/today", status=400, code="VALIDATION_ERROR")
+        run("GET /ai-usage-log (senza /today) → 404 ROUTE_NOT_FOUND", "GET",
+            "/api/ai-usage-log", status=404, code="ROUTE_NOT_FOUND")
+        run("PUT /ai-usage-log/:id → 404 ROUTE_NOT_FOUND (nessun PUT)", "PUT",
+            f"/api/ai-usage-log/{uuid.uuid4()}", body={"feature": "photo_meal"},
+            status=404, code="ROUTE_NOT_FOUND")
+        run("DELETE /ai-usage-log/:id → 404 ROUTE_NOT_FOUND", "DELETE",
+            f"/api/ai-usage-log/{uuid.uuid4()}", status=404,
+            code="ROUTE_NOT_FOUND")
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
