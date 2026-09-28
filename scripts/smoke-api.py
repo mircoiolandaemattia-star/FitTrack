@@ -552,6 +552,83 @@ def main():
         record("DELETE sessione due volte → 404 (P2025)", status == 404,
                f"atteso 404, ricevuto {status}", text[:200])
 
+        # --- CRUD diet_plans (stesso pattern di workout_plans)
+        diet_ids = []
+
+        def diet_created(payload):
+            diet_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID and payload["source"] == "manual"
+                  and payload["is_active"] is True
+                  and payload["daily_calorie_target"] == 2200
+                  and payload["protein_g"] == 160)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /diet-plans → 201 (user_id dal token)", "POST",
+            "/api/diet-plans",
+            body={"user_id": OTHER_ID, "name": "Dieta forza", "source": "manual",
+                  "daily_calorie_target": 2200, "protein_g": 160,
+                  "carbs_g": 220, "fat_g": 70},
+            status=201, test=diet_created)
+        diet_id = diet_ids[0]
+
+        def diet_created_min(payload):
+            diet_ids.append(payload["id"])
+            # is_active di default true: campo non inviato nel body
+            return payload["is_active"] is True, json.dumps(payload)[:300]
+
+        run("POST /diet-plans minimo → 201 (is_active di default)", "POST",
+            "/api/diet-plans", body={"name": "Dieta jet", "source": "ai"},
+            status=201, test=diet_created_min)
+        diet_delete_id = diet_ids[1]
+
+        run("POST /diet-plans source non ammesso → 400", "POST",
+            "/api/diet-plans", body={"name": "x", "source": "magic"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /diet-plans corpo incompleto → 400", "POST",
+            "/api/diet-plans", body={"name": "solo nome"},
+            status=400, code="VALIDATION_ERROR")
+
+        def two_diets(payload):
+            ids = [d["id"] for d in payload]
+            return len(ids) == 2 and diet_id in ids, str(ids)[:300]
+
+        run("GET /diet-plans → 200 lista propria", "GET", "/api/diet-plans",
+            status=200, test=two_diets)
+        run("GET /diet-plans/:id → 200", "GET", f"/api/diet-plans/{diet_id}",
+            status=200, test=lambda p: (p["id"] == diet_id, str(p)[:300]))
+        run("GET /diet-plans/:id inesistente → 404", "GET",
+            f"/api/diet-plans/{uuid.uuid4()}", status=404, code="NOT_FOUND")
+        run("PUT /diet-plans/:id → 200", "PUT", f"/api/diet-plans/{diet_id}",
+            body={"name": "Dieta forza v2", "source": "ai", "is_active": False},
+            status=200,
+            test=lambda p: (p["name"] == "Dieta forza v2" and p["source"] == "ai"
+                            and p["is_active"] is False, str(p)[:300]))
+        run("PUT /diet-plans corpo vuoto → 400", "PUT",
+            f"/api/diet-plans/{diet_id}", body={}, status=400,
+            code="BAD_REQUEST")
+        run("PUT /diet-plans/:id inesistente → 404 (P2025)", "PUT",
+            f"/api/diet-plans/{uuid.uuid4()}", body={"name": "x"},
+            status=404, code="NOT_FOUND")
+        run("Altro utente: lista diete → 200 vuota", "GET", "/api/diet-plans",
+            status=200, token=intruder, test=lambda p: (p == [], str(p)[:300]))
+        run("Altro utente: GET dieta altrui → 404", "GET",
+            f"/api/diet-plans/{diet_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT dieta altrui → 404", "PUT",
+            f"/api/diet-plans/{diet_id}", body={"name": "hacker"},
+            status=404, code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE dieta altrui → 404", "DELETE",
+            f"/api/diet-plans/{diet_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sulla seconda dieta (la prima serve a /meals)
+        status, _ = req("DELETE", f"/api/diet-plans/{diet_delete_id}")
+        record("DELETE /diet-plans/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/diet-plans/{diet_delete_id}")
+        record("DELETE dieta due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
