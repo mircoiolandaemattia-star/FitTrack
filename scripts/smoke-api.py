@@ -835,6 +835,106 @@ def main():
         record("cascata: nessun food_item residuo del pasto",
                leftover_food == "0", f"righe food_items residue: {leftover_food}")
 
+        # --- CRUD body_measurements (almeno un campo numerico, range opzionale)
+        bm_ids = []
+
+        def bm_created(payload):
+            bm_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID and payload["date"][:10] == "2026-09-26"
+                  and payload["weight_kg"] == 80.5 and payload["waist_cm"] == 84
+                  and payload["chest_cm"] == 100 and payload["hips_cm"] == 98)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /body-measurements → 201 (user_id dal token)", "POST",
+            "/api/body-measurements",
+            body={"date": "2026-09-26", "weight_kg": 80.5, "waist_cm": 84,
+                  "hips_cm": 98, "chest_cm": 100, "arms_cm": 36,
+                  "user_id": OTHER_ID},
+            status=201, test=bm_created)
+        bm_id = bm_ids[0]
+
+        def bm_created_min(payload):
+            bm_ids.append(payload["id"])
+            ok = payload["date"][:10] == "2026-09-20" and payload["weight_kg"] == 81
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /body-measurements minimo → 201 (un solo campo)", "POST",
+            "/api/body-measurements",
+            body={"date": "2026-09-20", "weight_kg": 81},
+            status=201, test=bm_created_min)
+        bm_delete_id = bm_ids[1]
+
+        run("POST /body-measurements senza campi numerici → 400", "POST",
+            "/api/body-measurements", body={"date": "2026-09-26"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /body-measurements peso fuori range → 400", "POST",
+            "/api/body-measurements",
+            body={"date": "2026-09-26", "weight_kg": 999},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /body-measurements data non valida → 400", "POST",
+            "/api/body-measurements",
+            body={"date": "26/09/2026", "weight_kg": 80},
+            status=400, code="VALIDATION_ERROR")
+
+        def only_first_bm(payload):
+            ids = [m["id"] for m in payload]
+            return ids == [bm_id], str(ids)[:300]
+
+        def both_bm(payload):
+            ids = [m["id"] for m in payload]
+            return ids == bm_ids, str(ids)[:300]
+
+        run("GET /body-measurements senza filtro → 200 lista propria", "GET",
+            "/api/body-measurements", status=200, test=both_bm)
+        run("GET /body-measurements?from&to → 200 (un giorno)", "GET",
+            "/api/body-measurements?from=2026-09-25&to=2026-09-27",
+            status=200, test=only_first_bm)
+        run("GET /body-measurements?from>to → 400", "GET",
+            "/api/body-measurements?from=2026-09-27&to=2026-09-25",
+            status=400, code="VALIDATION_ERROR")
+        run("GET /body-measurements range vuoto → 200 []", "GET",
+            "/api/body-measurements?from=2026-09-27&to=2026-09-28",
+            status=200, test=lambda p: (p == [], str(p)[:300]))
+        run("Altro utente: lista misurazioni → 200 vuota", "GET",
+            "/api/body-measurements", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("GET /body-measurements/:id → 200", "GET",
+            f"/api/body-measurements/{bm_id}", status=200,
+            test=lambda p: (p["id"] == bm_id, str(p)[:300]))
+        run("GET /body-measurements/:id inesistente → 404", "GET",
+            f"/api/body-measurements/{uuid.uuid4()}", status=404,
+            code="NOT_FOUND")
+        run("PUT /body-measurements/:id → 200", "PUT",
+            f"/api/body-measurements/{bm_id}",
+            body={"waist_cm": 83.5, "weight_kg": 79.8}, status=200,
+            test=lambda p: (p["waist_cm"] == 83.5 and p["weight_kg"] == 79.8
+                            and p["chest_cm"] == 100, str(p)[:300]))
+        run("PUT /body-measurements corpo vuoto → 400", "PUT",
+            f"/api/body-measurements/{bm_id}", body={}, status=400,
+            code="BAD_REQUEST")
+        run("PUT /body-measurements/:id inesistente → 404 (P2025)", "PUT",
+            f"/api/body-measurements/{uuid.uuid4()}", body={"weight_kg": 80},
+            status=404, code="NOT_FOUND")
+        run("Altro utente: GET misurazione altrui → 404", "GET",
+            f"/api/body-measurements/{bm_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT misurazione altrui → 404", "PUT",
+            f"/api/body-measurements/{bm_id}", body={"weight_kg": 55},
+            status=404, code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE misurazione altrui → 404", "DELETE",
+            f"/api/body-measurements/{bm_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sulla seconda misurazione
+        status, _ = req("DELETE", f"/api/body-measurements/{bm_delete_id}")
+        record("DELETE /body-measurements/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/body-measurements/{bm_delete_id}")
+        record("DELETE misurazione due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+        run("GET /body-measurements dopo DELETE → 200 con una riga", "GET",
+            "/api/body-measurements", status=200, test=only_first_bm)
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,

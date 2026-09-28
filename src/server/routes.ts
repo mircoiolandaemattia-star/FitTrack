@@ -1,4 +1,5 @@
 import { Router } from "express";
+import * as bodyMeasurements from "../api/bodyMeasurements";
 import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
 import * as foodItems from "../api/foodItems";
@@ -50,6 +51,12 @@ export function apiRouter(): Router {
   router.get("/food-items/:id", wrap(foodItems.getFoodItem));
   router.put("/food-items/:id", wrap(foodItems.updateFoodItem));
   router.delete("/food-items/:id", wrap(foodItems.deleteFoodItem));
+
+  router.get("/body-measurements", wrap(bodyMeasurements.listBodyMeasurements));
+  router.post("/body-measurements", wrap(bodyMeasurements.createBodyMeasurement));
+  router.get("/body-measurements/:id", wrap(bodyMeasurements.getBodyMeasurement));
+  router.put("/body-measurements/:id", wrap(bodyMeasurements.updateBodyMeasurement));
+  router.delete("/body-measurements/:id", wrap(bodyMeasurements.deleteBodyMeasurement));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));
