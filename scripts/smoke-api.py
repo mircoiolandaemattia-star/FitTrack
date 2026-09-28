@@ -367,6 +367,90 @@ def main():
             body={"goal": "bulk"}, status=400, code="VALIDATION_ERROR",
             token=onboard_token)
 
+        # --- CRUD exercises (annidati: exercise -> giorno -> piano -> utente)
+        ex_ids = []
+
+        def exercise_created(payload):
+            ex_ids.append(payload["id"])
+            ok = (payload["workout_day_id"] == day_id and payload["name"] == "Panca piana"
+                  and payload["sets"] == 3 and payload["reps"] == 8
+                  and payload["order_index"] == 1)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /exercises → 201", "POST", "/api/exercises",
+            body={"workout_day_id": day_id, "name": "Panca piana", "sets": 3,
+                  "reps": 8, "weight_kg": 60, "rest_seconds": 90, "order_index": 1},
+            status=201, test=exercise_created)
+
+        def ex_created(payload):
+            ex_ids.append(payload["id"])
+            return payload["name"] == "Rematori", json.dumps(payload)[:300]
+
+        run("POST /exercises (secondo, per il DELETE)", "POST", "/api/exercises",
+            body={"workout_day_id": day_id, "name": "Rematori", "sets": 4,
+                  "reps": 10, "order_index": 2},
+            status=201, test=ex_created)
+        panca_id, ex_id = ex_ids          # [0] resta per la cascata, [1] si elimina
+
+        def own_ex_list(payload):
+            ids = [e["id"] for e in payload]
+            return ids == ex_ids, str(ids)[:300]
+
+        run("GET /exercises senza workout_day_id → 400", "GET", "/api/exercises",
+            status=400, code="VALIDATION_ERROR")
+        run("GET /exercises?workout_day_id → 200 lista", "GET",
+            f"/api/exercises?workout_day_id={day_id}", status=200,
+            test=own_ex_list)
+        run("GET /exercises/:id → 200", "GET", f"/api/exercises/{ex_id}",
+            status=200, test=lambda p: (p["id"] == ex_id, str(p)[:300]))
+        run("GET /exercises/:id inesistente → 404", "GET",
+            f"/api/exercises/{uuid.uuid4()}", status=404, code="NOT_FOUND")
+        run("PUT /exercises/:id → 200", "PUT", f"/api/exercises/{ex_id}",
+            body={"name": "Rematori con bilanciere", "reps": 12}, status=200,
+            test=lambda p: (p["name"] == "Rematori con bilanciere" and p["reps"] == 12,
+                            str(p)[:300]))
+        run("PUT /exercises corpo vuoto → 400", "PUT", f"/api/exercises/{ex_id}",
+            body={}, status=400, code="BAD_REQUEST")
+        run("POST /exercises su giorno inesistente → 422 (P2003)", "POST",
+            "/api/exercises",
+            body={"workout_day_id": str(uuid.uuid4()), "name": "x", "sets": 1,
+                  "reps": 1, "order_index": 0},
+            status=422, code="FOREIGN_KEY_VIOLATION")
+        run("POST /exercises sets non intero → 400", "POST", "/api/exercises",
+            body={"workout_day_id": day_id, "name": "x", "sets": "3",
+                  "reps": 1, "order_index": 0},
+            status=400, code="VALIDATION_ERROR")
+
+        # isolamento: altro utente autenticato, mai 403 solo 404
+        run("Altro utente: lista esercizi del nostro giorno → 200 vuota", "GET",
+            f"/api/exercises?workout_day_id={day_id}", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("Altro utente: GET esercizio altrui → 404", "GET",
+            f"/api/exercises/{ex_id}", status=404, code="NOT_FOUND", token=intruder)
+        run("Altro utente: PUT esercizio altrui → 404", "PUT",
+            f"/api/exercises/{ex_id}", body={"name": "hacker"}, status=404,
+            code="NOT_FOUND", token=intruder)
+        run("Altro utente: POST esercizio sul nostro giorno → 404", "POST",
+            "/api/exercises",
+            body={"workout_day_id": day_id, "name": "intruso", "sets": 1,
+                  "reps": 1, "order_index": 9},
+            status=404, code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE esercizio altrui → 404", "DELETE",
+            f"/api/exercises/{ex_id}", status=404, code="NOT_FOUND", token=intruder)
+
+        # DELETE + P2025 (l'"Panca piana" resta, serve per la cascata)
+        status, text = req("GET", f"/api/exercises?workout_day_id={day_id}")
+        names = [e["name"] for e in json.loads(text)]
+        record("lista esercizi: entrambi presenti prima del DELETE",
+               "Panca piana" in names and "Rematori con bilanciere" in names,
+               str(names)[:300])
+        status, _ = req("DELETE", f"/api/exercises/{ex_id}")
+        record("DELETE /exercises/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/exercises/{ex_id}")
+        record("DELETE esercizio due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
@@ -391,6 +475,14 @@ def main():
             capture_output=True, text=True, check=True).stdout.strip()
         record("cascata: nessun giorno residuo del piano", days == "0",
                f"righe workout_days residue: {days}")
+
+        leftover_ex = subprocess.run(
+            ["docker", "exec", "supabase_db_FitTrack", "psql", "-U", "postgres",
+             "-d", "postgres", "-tAc",
+             f"select count(*) from exercises where workout_day_id='{day_id}'"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        record("cascata: nessun esercizio residuo del giorno", leftover_ex == "0",
+               f"righe exercises residue: {leftover_ex}")
     finally:
         psql(f"DELETE FROM users WHERE id IN ('{USER_ID}','{ONBOARD_ID}');")
 
