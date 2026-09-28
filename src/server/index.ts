@@ -7,7 +7,14 @@ const port = Number(process.env.PORT ?? 3000);
 
 // Variabili obbligatorie a runtime (vedi .env.example). `src/lib/prisma`
 // carica `.env` in locale all'import, quindi qui il check è affidabile.
-const missingEnv = ["DATABASE_URL", "SUPABASE_JWT_SECRET", "ALLOWED_ORIGIN"].filter(
+// JWKS: serve a verificare i token utente ES256 emessi da Supabase Auth
+// (l'HS256 da solo basta solo per le chiavi simmetriche legacy).
+const missingEnv = [
+  "DATABASE_URL",
+  "SUPABASE_JWT_SECRET",
+  "SUPABASE_JWKS_URL",
+  "ALLOWED_ORIGIN",
+].filter(
   (name) => !process.env[name],
 );
 if (missingEnv.length > 0) {

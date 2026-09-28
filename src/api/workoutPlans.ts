@@ -48,9 +48,26 @@ export const createWorkoutPlan: Handler = async (req) => {
   return { status: 201, body: plan };
 };
 
+/**
+ * Dettaglio = piano con giorni ed esercizi annidati, così la schermata
+ * Scheda (piano → giorni → esercizi) basta una sola chiamata.
+ * Giorni per `day_order`, esercizi per `order_index`: la forma è già
+ * quella che il client deve renderizzare.
+ */
 export const getWorkoutPlan: Handler = async (req) => {
   const { id } = parse(idParam, req.params);
-  return { status: 200, body: await ownedWorkoutPlan(id, req.user_id) };
+  const plan = await prisma.workout_plans.findFirst({
+    where: { id, user_id: req.user_id },
+    include: {
+      workout_days: {
+        orderBy: { day_order: "asc" },
+        include: { exercises: { orderBy: { order_index: "asc" } } },
+      },
+    },
+  });
+  // 404 identico se il piano non esiste o è di un altro utente.
+  if (!plan) throw HttpError.notFound("workout_plan", id);
+  return { status: 200, body: plan };
 };
 
 export const updateWorkoutPlan: Handler = async (req) => {

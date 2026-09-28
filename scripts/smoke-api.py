@@ -5,7 +5,9 @@ Richiede il Supabase locale attivo (npx supabase start) e il server avviato:
   PORT=3000 npm start
 
 Genera token JWT HS256 firmati con SUPABASE_JWT_SECRET (da .env o dall'env),
-così si esercita il percorso reale di verifica: nessun bypass d'auth.
+così si esercita il percorso reale di verifica: nessun bypass d'auth. Copre
+anche i percorsi ES256: alg fuori whitelist, kid ignoto (refresh del JWKS) e
+un token reale emesso da Supabase Auth e verificato via JWKS.
 
 Uso: python3 scripts/smoke-api.py   (API_BASE per cambiare la base URL)
 """
@@ -35,15 +37,23 @@ results = []
 
 # ---------------------------------------------------------------- JWT (HS256)
 
-def load_secret() -> str:
-    if os.environ.get("SUPABASE_JWT_SECRET"):
-        return os.environ["SUPABASE_JWT_SECRET"]
+def load_env(name: str, default: str | None = None) -> str | None:
+    """Legge una variabile dall'env o dal .env del progetto (mai fatal)."""
+    if os.environ.get(name):
+        return os.environ[name]
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         for line in env_path.read_text().splitlines():
-            if line.startswith("SUPABASE_JWT_SECRET="):
+            if line.startswith(name + "="):
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
-    sys.exit("SUPABASE_JWT_SECRET assente: imposta .env o la variabile d'ambiente")
+    return default
+
+
+def load_secret() -> str:
+    secret = load_env("SUPABASE_JWT_SECRET")
+    if not secret:
+        sys.exit("SUPABASE_JWT_SECRET assente: imposta .env o la variabile d'ambiente")
+    return secret
 
 
 def b64url(data: bytes) -> str:
@@ -68,6 +78,56 @@ def make_token(secret: str, *, sub=USER_ID, expires_in=3600,
     key = (sign_with or secret).encode()
     sig = hmac.new(key, signing_input.encode(), hashlib.sha256).digest()
     return f"{signing_input}.{b64url(sig)}"
+
+
+def make_es256_token() -> str:
+    """JWT con header ES256 e kid ignoto: stessa forma dei token moderni di
+    Supabase Auth, ma nessuna chiave del JWKS lo conosce → deve finire in 401
+    (e copre il refresh del JWKS)."""
+    now = int(time.time())
+    header = {"alg": "ES256", "kid": "kid-non-del-nostro-supabase", "typ": "JWT"}
+    payload = {"iss": "supabase", "role": "authenticated",
+               "iat": now, "exp": now + 3600, "sub": USER_ID}
+    signing_input = (
+        f"{b64url(json.dumps(header, separators=(',', ':')).encode())}."
+        f"{b64url(json.dumps(payload, separators=(',', ':')).encode())}"
+    )
+    return f"{signing_input}.{b64url(os.urandom(64))}"
+
+
+def make_alg_none_token() -> str:
+    """Header alg=none: l'algoritmo non è nella whitelist, va scartato."""
+    now = int(time.time())
+    header = {"alg": "none", "typ": "JWT"}
+    payload = {"iss": "supabase", "role": "authenticated",
+               "iat": now, "exp": now + 3600, "sub": USER_ID}
+    return (
+        f"{b64url(json.dumps(header, separators=(',', ':')).encode())}."
+        f"{b64url(json.dumps(payload, separators=(',', ':')).encode())}."
+    )
+
+
+def supa_access_token() -> str | None:
+    """Signup reale su Supabase Auth: restituisce l'access_token ES256 emesso
+    (None se l'auth locale non risponde o le env Expo mancano)."""
+    url = load_env("EXPO_PUBLIC_SUPABASE_URL")
+    anon = load_env("EXPO_PUBLIC_SUPABASE_ANON_KEY")
+    if not url or not anon:
+        return None
+    body = json.dumps({
+        "email": f"smoke-{int(time.time() * 1000)}@example.com",
+        "password": "password-smoke-1",
+        "data": {"name": "Smoke"},
+    }).encode()
+    request = urllib.request.Request(
+        f"{url}/auth/v1/signup", data=body, method="POST",
+        headers={"Content-Type": "application/json", "apikey": anon,
+                 "Authorization": f"Bearer {anon}"})
+    try:
+        with urllib.request.urlopen(request) as resp:
+            return json.loads(resp.read().decode()).get("access_token")
+    except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+        return None
 
 
 # ------------------------------------------------- TDEE atteso (per i test)
@@ -193,6 +253,19 @@ def main():
         run("Token senza sub (stile anon key) → 401", "GET", "/api/workout-plans",
             status=401, code="UNAUTHENTICATED",
             token=make_token(load_secret(), with_sub=False))
+        run("Token alg=none → 401", "GET", "/api/workout-plans",
+            status=401, code="UNAUTHENTICATED", token=make_alg_none_token())
+        run("Token ES256 con kid ignoto → 401", "GET", "/api/workout-plans",
+            status=401, code="UNAUTHENTICATED", token=make_es256_token())
+        # Il percorso usato dall'app: token reale di Supabase Auth (ES256)
+        # verificato contro il JWKS del progetto.
+        es256_token = supa_access_token()
+        if es256_token:
+            run("Token ES256 reale (verifica via JWKS) → 200 lista", "GET",
+                "/api/workout-plans", status=200, token=es256_token)
+        else:
+            record("Token ES256 reale (verifica via JWKS) → 200 lista", False,
+                   "atteso 200, signup Supabase Auth non riuscito", "")
 
         # --- validazione input (user_id non è più un input)
         run("POST /workout-plans corpo incompleto → 400", "POST", "/api/workout-plans",
@@ -391,6 +464,21 @@ def main():
                   "reps": 10, "order_index": 2},
             status=201, test=ex_created)
         panca_id, ex_id = ex_ids          # [0] resta per la cascata, [1] si elimina
+
+        # dettaglio annidato: il GET del piano deve riportare giorni ed
+        # esercizi (già ordinati) per la vista settimanale del client
+        def plan_nested(payload):
+            days = payload.get("workout_days") or []
+            if [d["id"] for d in days] != [day_id]:
+                return False, f"giorni attesi {[day_id]}, ricevuti {[d['id'] for d in days]}"
+            exercises = days[0].get("exercises") or []
+            ids = [e["id"] for e in exercises]
+            orders = [e["order_index"] for e in exercises]
+            ok = payload["id"] == plan_id and ids == ex_ids and orders == [1, 2]
+            return ok, f"esercizi {ids}, ordini {orders}"
+
+        run("GET /workout-plans/:id → 200 con giorni/esercizi annidati", "GET",
+            f"/api/workout-plans/{plan_id}", status=200, test=plan_nested)
 
         def own_ex_list(payload):
             ids = [e["id"] for e in payload]
