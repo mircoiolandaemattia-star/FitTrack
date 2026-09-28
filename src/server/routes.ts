@@ -3,6 +3,7 @@ import * as exercises from "../api/exercises";
 import * as users from "../api/users";
 import * as workoutDays from "../api/workoutDays";
 import * as workoutPlans from "../api/workoutPlans";
+import * as workoutSessions from "../api/workoutSessions";
 import { wrap } from "./wrap";
 
 /**
@@ -22,6 +23,12 @@ export function apiRouter(): Router {
   router.get("/exercises/:id", wrap(exercises.getExercise));
   router.put("/exercises/:id", wrap(exercises.updateExercise));
   router.delete("/exercises/:id", wrap(exercises.deleteExercise));
+
+  router.get("/workout-sessions", wrap(workoutSessions.listWorkoutSessions));
+  router.post("/workout-sessions", wrap(workoutSessions.createWorkoutSession));
+  router.get("/workout-sessions/:id", wrap(workoutSessions.getWorkoutSession));
+  router.put("/workout-sessions/:id", wrap(workoutSessions.updateWorkoutSession));
+  router.delete("/workout-sessions/:id", wrap(workoutSessions.deleteWorkoutSession));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));

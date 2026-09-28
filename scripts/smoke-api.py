@@ -451,6 +451,107 @@ def main():
         record("DELETE esercizio due volte → 404 (P2025)", status == 404,
                f"atteso 404, ricevuto {status}", text[:200])
 
+        # --- CRUD workout_sessions (utente diretto, genitori opzionali)
+        session_ids = []
+
+        def session_created(payload):
+            session_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID
+                  and payload["workout_plan_id"] == plan_id
+                  and payload["workout_day_id"] == day_id
+                  and payload["completed_at"] is None)
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /workout-sessions → 201 (user_id dal token)", "POST",
+            "/api/workout-sessions",
+            body={"workout_plan_id": plan_id, "workout_day_id": day_id,
+                  "started_at": "2026-09-27T18:00:00Z", "notes": "panca + rematori",
+                  "user_id": OTHER_ID},
+            status=201, test=session_created)
+        sess_id = session_ids[0]
+
+        run("POST /workout-sessions senza started_at → 400", "POST",
+            "/api/workout-sessions", body={"workout_plan_id": plan_id},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /workout-sessions started_at non valido → 400", "POST",
+            "/api/workout-sessions", body={"started_at": "ieri"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /workout-sessions completed_at prima di started_at → 400",
+            "POST", "/api/workout-sessions",
+            body={"started_at": "2026-09-27T18:00:00Z",
+                  "completed_at": "2026-09-27T17:00:00Z"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /workout-sessions con piano inesistente → 422 (P2003)",
+            "POST", "/api/workout-sessions",
+            body={"workout_plan_id": str(uuid.uuid4()),
+                  "started_at": "2026-09-27T18:00:00Z"},
+            status=422, code="FOREIGN_KEY_VIOLATION")
+        run("Altro utente: POST sessione sul nostro piano → 404", "POST",
+            "/api/workout-sessions",
+            body={"workout_plan_id": plan_id,
+                  "started_at": "2026-09-27T18:00:00Z"},
+            status=404, code="NOT_FOUND", token=intruder)
+
+        def only_our_session(payload):
+            ids = [s["id"] for s in payload]
+            return ids == [sess_id], str(ids)[:300]
+
+        run("GET /workout-sessions senza filtro → 200 lista propria", "GET",
+            "/api/workout-sessions", status=200, test=only_our_session)
+        run("GET /workout-sessions?workout_plan_id → 200", "GET",
+            f"/api/workout-sessions?workout_plan_id={plan_id}", status=200,
+            test=only_our_session)
+        run("Altro utente: GET sessioni col nostro piano → 200 vuota", "GET",
+            f"/api/workout-sessions?workout_plan_id={plan_id}", status=200,
+            token=intruder, test=lambda p: (p == [], str(p)[:300]))
+        run("GET /workout-sessions/:id → 200", "GET",
+            f"/api/workout-sessions/{sess_id}", status=200,
+            test=lambda p: (p["id"] == sess_id, str(p)[:300]))
+        run("GET /workout-sessions/:id inesistente → 404", "GET",
+            f"/api/workout-sessions/{uuid.uuid4()}", status=404,
+            code="NOT_FOUND")
+
+        def session_updated(payload):
+            ok = (payload["completed_at"] is not None
+                  and payload["performed_data"][0]["exercise_id"] == panca_id
+                  and payload["performed_data"][0]["sets"][1] == {"reps": 8})
+            return ok, json.dumps(payload)[:300]
+
+        run("PUT /workout-sessions/:id → 200 (completed_at + performed_data)",
+            "PUT", f"/api/workout-sessions/{sess_id}",
+            body={"completed_at": "2026-09-27T19:10:00Z",
+                  "performed_data": [{"exercise_id": panca_id,
+                                      "sets": [{"reps": 10, "weight_kg": 60},
+                                               {"reps": 8}]}]},
+            status=200, test=session_updated)
+        run("PUT /workout-sessions corpo vuoto → 400", "PUT",
+            f"/api/workout-sessions/{sess_id}", body={}, status=400,
+            code="BAD_REQUEST")
+        run("PUT /workout-sessions performed_data malformato → 400", "PUT",
+            f"/api/workout-sessions/{sess_id}",
+            body={"performed_data": [{"sets": []}]},
+            status=400, code="VALIDATION_ERROR")
+        run("PUT /workout-sessions: started_at dopo completed_at → 400", "PUT",
+            f"/api/workout-sessions/{sess_id}",
+            body={"started_at": "2026-09-27T20:00:00Z"},
+            status=400, code="BAD_REQUEST")
+        run("Altro utente: GET sessione altrui → 404", "GET",
+            f"/api/workout-sessions/{sess_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+        run("Altro utente: PUT sessione altrui → 404", "PUT",
+            f"/api/workout-sessions/{sess_id}", body={"notes": "hacker"},
+            status=404, code="NOT_FOUND", token=intruder)
+        run("Altro utente: DELETE sessione altrui → 404", "DELETE",
+            f"/api/workout-sessions/{sess_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        status, _ = req("DELETE", f"/api/workout-sessions/{sess_id}")
+        record("DELETE /workout-sessions/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/workout-sessions/{sess_id}")
+        record("DELETE sessione due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
