@@ -53,3 +53,5 @@ example
 
 # Password DB locali (non versionare mai)
 .dbpasswd.txt
+skills-lock.json
+.agents/
