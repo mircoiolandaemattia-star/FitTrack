@@ -97,10 +97,19 @@ src/
 ├── api/                 handler puri, nessun riferimento a Express
 │   ├── types.ts         ApiRequest / ApiResponse / Handler
 │   ├── errors.ts        adapter centralizzato degli errori
-│   ├── validate.ts      parse(): zod → ZodError
+│   ├── validate.ts      parse(): zod → ZodError + schema data/range condivisi
+│   ├── users.ts         profilo: onboarding (POST) + /me (GET, PUT)
 │   ├── workoutPlans.ts  CRUD workout_plans
 │   ├── workoutDays.ts   CRUD workout_days
-│   ├── users.ts         profilo: onboarding (POST) + /me (GET, PUT)
+│   ├── exercises.ts     CRUD exercises (sotto workout_days)
+│   ├── workoutSessions.ts  CRUD workout_sessions (performed_data in Json)
+│   ├── dietPlans.ts     CRUD diet_plans
+│   ├── meals.ts         CRUD meals (filtro data obbligatorio)
+│   ├── foodItems.ts     CRUD food_items (sotto meals)
+│   ├── bodyMeasurements.ts CRUD body_measurements (almeno un campo)
+│   ├── progressPhotos.ts   lista + POST + DELETE (nessun PUT)
+│   ├── reminders.ts     CRUD reminders (time HH:MM, days 0-6)
+│   ├── aiUsageLog.ts    POST log + GET conteggio di oggi
 │   └── lib/tdee.ts      formula TDEE: unica, usata da POST e PUT /users
 ├── server/              Express: solo wrapper sottili
 │   ├── auth.ts          requireAuth: verifica JWT Supabase → req.user_id
@@ -148,7 +157,11 @@ restano lato Supabase, qui non li reinventiamo:
 Di conseguenza `user_id` non è più un campo di input ed è sparito dalla
 validazione zod. Gli endpoint `:id` sono **scoped per proprietà**: una risorsa
 di un altro utente e una risorsa inesistente rispondono entrambe `404`, senza
-rivelare l'esistenza dell'id (protezione IDOR/BOLA).
+rivelare l'esistenza dell'id (protezione IDOR/BOLA). La proprietà è **diretta**
+quando la riga ha `user_id` ed **a cascata** quando no (esercizio → giorno →
+piano, alimento → pasto): in entrambi i casi mai `403`, solo `404`. Anche i
+genitori passati in query o body (es. `workout_day_id`, `meal_id`) vengono
+verificati prima di scrivere: altrui → `404`, inesistente → `422` (P2003).
 
 Note: la anon key di Supabase non ha il claim `sub` e viene scartata; `/health`
 resta senza auth perché lo health check di Render non può mandare token; i
@@ -168,6 +181,28 @@ verifica via JWKS e qui il middleware andrebbe esteso.
 | GET | `/api/workout-days?workout_plan_id=` | lista per piano (obbligatorio) |
 | POST | `/api/workout-days` | `201` |
 | GET / PUT / DELETE | `/api/workout-days/:id` | DELETE in cascata su exercises |
+| GET | `/api/exercises?workout_day_id=` | lista per giorno (obbligatorio), a cascata sul piano |
+| POST | `/api/exercises` | `201` |
+| GET / PUT / DELETE | `/api/exercises/:id` | proprietà a cascata giorno → piano |
+| GET | `/api/workout-sessions?workout_plan_id=` | lista propria, filtro opzionale |
+| POST | `/api/workout-sessions` | `201`, `started_at` obbligatorio, `performed_data` Json validato |
+| GET / PUT / DELETE | `/api/workout-sessions/:id` | DELETE: i riferimenti a piano/giorno vanno in SetNull |
+| GET / POST | `/api/diet-plans` | come `workout-plans` (`source`, `is_active`, macro opzionali) |
+| GET / PUT / DELETE | `/api/diet-plans/:id` | DELETE: `meals.diet_plan_id` in SetNull |
+| GET | `/api/meals?date=` oppure `?from=&to=` | filtro **obbligatorio** (giorno o intervallo) |
+| POST | `/api/meals` | `201`, `diet_plan_id` opzionale |
+| GET / PUT / DELETE | `/api/meals/:id` | DELETE in cascata su food_items |
+| GET | `/api/food-items?meal_id=` | lista per pasto (obbligatorio), a cascata sull'utente |
+| POST | `/api/food-items` | `201`, `source` in `barcode\|photo\|manual\|upload` |
+| GET / PUT / DELETE | `/api/food-items/:id` | proprietà a cascata pasto → utente |
+| GET | `/api/body-measurements?from=&to=` | range opzionale; POST richiede almeno un campo numerico |
+| POST / GET / PUT / DELETE | `/api/body-measurements[/:id]` | `201` + CRUD con scoping diretto |
+| GET / POST | `/api/progress-photos?from=&to=` | range opzionale; `photo_url` obbligatorio |
+| DELETE | `/api/progress-photos/:id` | **nessun** GET/PUT by `:id` (rotte assenti → `404 ROUTE_NOT_FOUND`) |
+| GET / POST | `/api/reminders` | `time` in formato `HH:MM`, `days_of_week` interi 0–6 |
+| GET / PUT / DELETE | `/api/reminders/:id` | CRUD con scoping diretto |
+| POST | `/api/ai-usage-log` | log in append (feature enum), nessuna modifica/cancellazione |
+| GET | `/api/ai-usage-log/today?feature=` | usi di oggi di `req.user_id` → `{feature, count}` (limite piano free) |
 
 Tutte le route `/api` richiedono `Authorization: Bearer <JWT Supabase>`.
 DELETE risponde `204` senza corpo; gli errori rispondono
@@ -194,7 +229,7 @@ fissa); `DIRECT_URL` serve solo alle migrazioni Prisma, non a runtime.
 ```bash
 npx supabase start                # DB locale (una volta)
 PORT=3000 npm start               # il client Prisma carica .env da solo
-python3 scripts/smoke-api.py      # 49/49 test
+python3 scripts/smoke-api.py      # 217/217 test
 ```
 
 Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da
