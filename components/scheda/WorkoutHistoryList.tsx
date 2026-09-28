@@ -1,11 +1,12 @@
 import { Text, View } from "react-native";
 import { Clock, Flame } from "lucide-react-native";
 import type { WorkoutSession } from "@/types";
-import { getWorkoutDayName } from "@/lib/mock-data";
 import { Card } from "@/components/home/Card";
 
 type WorkoutHistoryListProps = {
   sessions: WorkoutSession[];
+  /** Nome dei giorni per id: la sessione conserva solo i riferimenti. */
+  dayNames: Record<string, string>;
 };
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("it-IT", {
@@ -23,10 +24,10 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Storico delle sessioni: data, giorno di scheda, durata e calorie
- * bruciate. Dati tipizzati WorkoutSession, pronti per l'API.
+ * Storico delle sessioni: data, giorno di scheda, durata e (se presenti)
+ * calorie. I dati arrivano da GET /api/workout-sessions via React Query.
  */
-export function WorkoutHistoryList({ sessions }: WorkoutHistoryListProps) {
+export function WorkoutHistoryList({ sessions, dayNames }: WorkoutHistoryListProps) {
   if (sessions.length === 0) {
     return (
       <Card>
@@ -44,7 +45,7 @@ export function WorkoutHistoryList({ sessions }: WorkoutHistoryListProps) {
           <View className="flex-row items-center gap-3">
             <View className="flex-1">
               <Text className="font-inter-semibold text-sm text-foreground">
-                {getWorkoutDayName(session.dayId)}
+                {dayNames[session.dayId] ?? "Allenamento"}
               </Text>
               <Text className="mt-0.5 font-sans text-xs text-muted">
                 {formatDate(session.endedAt)}
@@ -58,12 +59,15 @@ export function WorkoutHistoryList({ sessions }: WorkoutHistoryListProps) {
                   {session.durationMinutes} min
                 </Text>
               </View>
-              <View className="flex-row items-center gap-1.5 rounded-lg bg-primary/15 px-2.5 py-1.5">
-                <Flame size={14} color="#F97316" strokeWidth={2.2} />
-                <Text className="font-inter-semibold text-xs text-primary">
-                  {session.caloriesBurned} kcal
-                </Text>
-              </View>
+              {/* Le kcal esistono solo nei dati mock: senza valore non si mostra. */}
+              {typeof session.caloriesBurned === "number" ? (
+                <View className="flex-row items-center gap-1.5 rounded-lg bg-primary/15 px-2.5 py-1.5">
+                  <Flame size={14} color="#F97316" strokeWidth={2.2} />
+                  <Text className="font-inter-semibold text-xs text-primary">
+                    {session.caloriesBurned} kcal
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
         </Card>

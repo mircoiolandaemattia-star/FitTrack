@@ -26,18 +26,17 @@ import {
   X,
 } from "lucide-react-native";
 import type { DayOfWeek, ExerciseTemplate, WorkoutDraft } from "@/types";
+import { isApiError } from "@/lib/api";
+import { useSaveWorkoutDay } from "@/lib/workoutQueries";
 import {
   AI_GOAL_OPTIONS,
   AI_LEVEL_OPTIONS,
-  applyWorkoutDraft,
-  buildImportedWorkoutDraft,
   generateMockWorkout,
   getDayShortLabel,
   getDefaultExercises,
   MOCK_EXERCISE_LIBRARY,
   TRAINING_TYPES,
   type TrainingTypeKey,
-  upsertWorkoutDay,
   WEEKDAYS,
   WORKOUT_EQUIPMENT_OPTIONS,
 } from "@/lib/mock-data";
@@ -89,9 +88,11 @@ const MODE_TITLES: Record<Mode, string> = {
 
 type CreateWorkoutModalProps = {
   visible: boolean;
+  /** Piano a cui agganciare il giorno; null = primo giorno (si crea qui). */
+  planId: string | null;
   onClose: () => void;
-  /** Chiamata quando una scheda viene salvata/aggiunta (refresh lista). */
-  onDone: () => void;
+  /** Chiamata con l'id del giorno salvato (per aprirlo nella lista). */
+  onDone: (dayId: string) => void;
 };
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -213,16 +214,25 @@ function PrimaryButton({
 
 /**
  * Modal "Crea scheda" con tre flussi: creazione manuale (giorno + tipo +
- * esercizi riordinabili), importazione di un file esistente (PDF/foto,
- * elaborazione mock) e generazione AI multi-step (obiettivo, livello,
- * giorni, attrezzatura → anteprima mock).
+ * esercizi riordinabili) salvata davvero via API, importazione di un file
+ * esistente e generazione AI multi-step — entrambi ancora stub in attesa
+ * dell'integrazione Gemini.
  */
-export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutModalProps) {
+export function CreateWorkoutModal({
+  visible,
+  planId,
+  onClose,
+  onDone,
+}: CreateWorkoutModalProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
   const [mode, setMode] = useState<Mode>("menu");
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Scrittura reale del giorno (piano → giorno → esercizi).
+  const saveDay = useSaveWorkoutDay();
 
   // Stato del flusso manuale.
   const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>("monday");
@@ -313,9 +323,9 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
     setExercises((prev) => [...prev, toFormExercise(item)]);
   }
 
-  function handleSaveManual() {
+  async function handleSaveManual() {
     const type = TRAINING_TYPES.find((t) => t.key === trainingKey);
-    if (!type) return;
+    if (!type || saving) return;
     if (trainingKey !== "rest" && exercises.length === 0) return;
 
     const parsedExercises = exercises.map((ex) => ({
@@ -327,15 +337,25 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
         : 0,
     }));
 
-    upsertWorkoutDay({
-      dayOfWeek,
-      name: trainingKey === "rest" ? "Riposo" : `Giorno ${type.label}`,
-      muscleGroups: type.muscleGroups,
-      isRestDay: trainingKey === "rest",
-      exercises: parsedExercises,
-    });
-    onDone();
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      // Scrittura reale: piano (se non c'è) → giorno → esercizi.
+      const { dayId } = await saveDay.mutateAsync({
+        planId,
+        dayOfWeek,
+        name: trainingKey === "rest" ? "Riposo" : `Giorno ${type.label}`,
+        exercises: parsedExercises,
+      });
+      onDone(dayId);
+      onClose();
+    } catch (err) {
+      setError(
+        isApiError(err) ? err.message : "Salvataggio non riuscito: controlla la connessione.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   /* --------------------- Flusso importa file ------------------------ */
@@ -358,11 +378,12 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
     }
   }
 
+  /* --------------------- Flusso importa file ------------------------ */
+  // Solo preview: il salvataggio reale arriva con l'integrazione AI.
+
   function handleApplyImported() {
-    const draft = buildImportedWorkoutDraft(fileName ?? "Scheda.pdf");
-    applyWorkoutDraft(draft);
-    onDone();
-    onClose();
+    // Stub: niente scrittura finché l'estrazione non sarà collegata.
+    setError("Salvataggio non ancora collegato: per ora crea il giorno in manuale.");
   }
 
   /* --------------------------- Flusso AI ---------------------------- */
@@ -380,10 +401,8 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
   }
 
   function handleApplyAi() {
-    if (!aiDraft) return;
-    applyWorkoutDraft(aiDraft);
-    onDone();
-    onClose();
+    // Stub: l'anteprima resta locale finché la generazione non è collegata.
+    setError("Salvataggio non ancora collegato: per ora crea il giorno in manuale.");
   }
 
   function goBack() {
@@ -625,9 +644,9 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
                   )}
 
                   <PrimaryButton
-                    label="Salva giorno"
+                    label={saving ? "Salvataggio…" : "Salva giorno"}
                     onPress={handleSaveManual}
-                    disabled={trainingKey !== "rest" && exercises.length === 0}
+                    disabled={saving || (trainingKey !== "rest" && exercises.length === 0)}
                   />
                 </>
               ) : null}
@@ -650,9 +669,6 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
                       Scegli file (PDF o foto)
                     </Text>
                   </Pressable>
-                  {error ? (
-                    <Text className="font-sans text-sm text-destructive">{error}</Text>
-                  ) : null}
                 </>
               ) : null}
 
@@ -877,6 +893,10 @@ export function CreateWorkoutModal({ visible, onClose, onDone }: CreateWorkoutMo
                     <Text className="font-inter-semibold text-base text-muted">Rigenera</Text>
                   </Pressable>
                 </>
+              ) : null}
+              {/* Errore comune a tutti i flussi (salvataggio o stub) */}
+              {error ? (
+                <Text className="font-sans text-sm text-destructive">{error}</Text>
               ) : null}
             </ScrollView>
           </View>

@@ -220,42 +220,10 @@ const mockSessions: WorkoutSession[] = [
 ];
 
 /**
- * Store in-memory delle sessioni: simula le chiamate API che verranno
- * collegate in seguito. Statistiche e storico leggono da qui.
+ * Store in-memory delle sessioni: resta solo per le statistiche di Home.
+ * Lo storico della Scheda viene da /api/workout-sessions.
  */
 let sessionStore: WorkoutSession[] = [...mockSessions];
-let completedNotice = false;
-
-/** Sessioni più recenti in cima. */
-export function listSessions(): WorkoutSession[] {
-  return [...sessionStore].sort((a, b) => b.endedAt.localeCompare(a.endedAt));
-}
-
-/** Salva una sessione completata (mock → POST /workout-sessions in futuro). */
-export function addWorkoutSession(input: {
-  dayId: string;
-  startedAt: string;
-  endedAt: string;
-  durationMinutes: number;
-  caloriesBurned: number;
-}): WorkoutSession {
-  const session: WorkoutSession = {
-    id: `s-${Date.now()}`,
-    userId: "mock-user-1",
-    planId: "plan-mock-1",
-    ...input,
-  };
-  sessionStore = [session, ...sessionStore];
-  completedNotice = true;
-  return session;
-}
-
-/** Consuma (una volta sola) il segnale "allenamento completato!". */
-export function consumeWorkoutCompletedNotice(): boolean {
-  const value = completedNotice;
-  completedNotice = false;
-  return value;
-}
 
 export type QuickStats = {
   streakDays: number;
@@ -277,11 +245,6 @@ export function getQuickStats(): QuickStats {
 /* ------------------------------------------------------------------ */
 /* Scheda settimanale: ordinamento, etichette e store dei giorni      */
 /* ------------------------------------------------------------------ */
-
-/** Restituisce il piano settimanale (mock, mutato in-place dagli upsert). */
-export function getWorkoutPlan(): WorkoutPlan {
-  return mockWorkoutPlan;
-}
 
 /** Ordine canonico della settimana (lunedì → domenica). */
 export const WEEKDAYS: DayOfWeek[] = [
@@ -325,67 +288,6 @@ export function getDayShortLabel(day: DayOfWeek): string {
 /** DayOfWeek di oggi (mappato da Date.getDay()). */
 export function getTodayDayOfWeek(date: Date = new Date()): DayOfWeek {
   return DAY_OF_WEEK[date.getDay()];
-}
-
-/** Nome del giorno di scheda a partire dal dayId (per lo storico). */
-export function getWorkoutDayName(dayId: string): string {
-  const day = mockWorkoutPlan.days.find((d) => d.id === dayId);
-  return day ? day.name : "Allenamento";
-}
-
-/**
- * Aggiunge o sostituisce un giorno nel piano settimanale (upsert per
- * dayOfWeek). Il piano mock viene mutato in-place: Home e Scheda leggono
- * dallo stesso oggetto.
- */
-export function upsertWorkoutDay(input: {
-  dayOfWeek: DayOfWeek;
-  name: string;
-  muscleGroups: string[];
-  isRestDay: boolean;
-  exercises: { name: string; sets: number; reps: number; weightKg: number }[];
-}): WorkoutDay {
-  const dayId = `day-${input.dayOfWeek}-${Date.now()}`;
-  const day: WorkoutDay = {
-    id: dayId,
-    planId: "plan-mock-1",
-    dayOfWeek: input.dayOfWeek,
-    name: input.name,
-    muscleGroups: input.muscleGroups,
-    isRestDay: input.isRestDay,
-    exercises: input.exercises.map((ex, order) => ({
-      id: `${dayId}-ex-${order}`,
-      dayId,
-      name: ex.name,
-      sets: ex.sets,
-      reps: ex.reps,
-      weightKg: ex.weightKg,
-      order: order + 1,
-    })),
-  };
-  mockWorkoutPlan.days = [
-    ...mockWorkoutPlan.days.filter((d) => d.dayOfWeek !== input.dayOfWeek),
-    day,
-  ];
-  return day;
-}
-
-/** Applica una bozza generata/importata: ogni giorno occupa un weekday (dal lunedì). */
-export function applyWorkoutDraft(draft: WorkoutDraft): WorkoutDay[] {
-  return draft.days.map((day, index) =>
-    upsertWorkoutDay({
-      dayOfWeek: WEEKDAYS[index % WEEKDAYS.length],
-      name: day.name,
-      muscleGroups: day.muscleGroups,
-      isRestDay: false,
-      exercises: day.exercises.map((ex) => ({
-        name: ex.name,
-        sets: ex.sets,
-        reps: ex.reps,
-        weightKg: ex.weightKg,
-      })),
-    }),
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -539,26 +441,5 @@ export function generateMockWorkout(input: WorkoutGenerationInput): WorkoutDraft
     id: `ai-draft-${Date.now()}`,
     name: `${goalLabel} · ${daysPerWeek} giorni`,
     days,
-  };
-}
-
-/** Bozza mock "estrapolata" da un file caricato (PDF/foto), da collegare all'AI. */
-export function buildImportedWorkoutDraft(fileName: string): WorkoutDraft {
-  const baseName = fileName.replace(/\.[^.]+$/, "") || "Scheda importata";
-  const picks = ["lib-squat", "lib-panca", "lib-rem-b", "lib-curl-b"];
-  const exercises = picks
-    .map((id, index) => ({ ...MOCK_EXERCISE_LIBRARY.find((item) => item.id === id), id: `imp-${index}` }))
-    .filter((item): item is ExerciseTemplate => Boolean(item));
-  return {
-    id: `import-draft-${Date.now()}`,
-    name: baseName,
-    days: [
-      {
-        id: "import-day-1",
-        name: "Giorno importato",
-        muscleGroups: ["Misto"],
-        exercises,
-      },
-    ],
   };
 }

@@ -34,6 +34,13 @@ export function WorkoutDayCard({ day, isToday = false, expanded, onToggle }: Wor
     });
   }
 
+  // Sottotitolo dell'header: riposo, gruppi muscolari (se noti) o il conteggio.
+  const subtitle = isRest
+    ? "Giorno di recupero"
+    : day.muscleGroups.length > 0
+      ? day.muscleGroups.join(" · ")
+      : `${day.exercises.length} esercizi`;
+
   return (
     <Card className="overflow-hidden p-0">
       {/* Header della card: intero tap per espandere/chiudere */}
@@ -61,9 +68,7 @@ export function WorkoutDayCard({ day, isToday = false, expanded, onToggle }: Wor
             <Text className="font-sans text-xs text-muted">{getDayLabel(day.dayOfWeek)}</Text>
             <Text className="font-inter-bold text-lg leading-6 text-foreground">{day.name}</Text>
             <View className="mt-0.5 flex-row flex-wrap items-center gap-2">
-              <Text className="font-sans text-xs text-muted">
-                {isRest ? "Giorno di recupero" : day.muscleGroups.join(" · ")}
-              </Text>
+              <Text className="font-sans text-xs text-muted">{subtitle}</Text>
               {isRest ? (
                 <View className="rounded-full bg-accent/15 px-2.5 py-0.5">
                   <Text className="font-inter-semibold text-xs text-accent">Riposo</Text>

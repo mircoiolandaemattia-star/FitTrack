@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -8,29 +9,35 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { CheckCircle2, Moon, Plus, X } from "lucide-react-native";
+import { CheckCircle2, Moon, Plus, RefreshCw, X } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
 import { useIsStandalone } from "@/lib/useStandalone";
+import { getDayLabel, getTodayDayOfWeek, WEEKDAYS } from "@/lib/mock-data";
+import { isApiError } from "@/lib/api";
 import {
   consumeWorkoutCompletedNotice,
-  getDayLabel,
-  getTodayDayOfWeek,
-  getWorkoutPlan,
-  listSessions,
-  WEEKDAYS,
-} from "@/lib/mock-data";
+  useWorkoutPlan,
+  useWorkoutPlans,
+  useWorkoutSessions,
+} from "@/lib/workoutQueries";
 import { WorkoutDayCard } from "@/components/scheda/WorkoutDayCard";
 import { WorkoutHistoryList } from "@/components/scheda/WorkoutHistoryList";
 import { CreateWorkoutModal } from "@/components/scheda/CreateWorkoutModal";
 
 const WIDE_BREAKPOINT = 768;
 
+/** Messaggio d'errore leggibile: quello dell'API o una rete assente. */
+function errorMessage(error: unknown): string {
+  return isApiError(error) ? error.message : "Connessione al server non riuscita.";
+}
+
 /**
  * Scheda: vista settimanale con card espandibili per giorno, modal di
- * creazione dal bottone "+" e storico delle sessioni. Su desktop/web i
- * bottoni "+" e "Inizia" sono nascosti (sola lettura) e il layout
- * diventa a due colonne.
+ * creazione dal bottone "+" e storico delle sessioni. I dati arrivano
+ * tutti da React Query (piano con giorni/esercizi annidati + sessioni).
+ * Su desktop/web i bottoni "+" e "Inizia" sono nostri (sola lettura) e il
+ * layout diventa a due colonne.
  */
 export default function SchedaScreen() {
   const { width } = useWindowDimensions();
@@ -39,21 +46,23 @@ export default function SchedaScreen() {
   const isInteractive = !(Platform.OS === "web" && !isStandalone);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [expandedDayId, setExpandedDayId] = useState<string | null>(() => {
-    const today = getTodayDayOfWeek();
-    return getWorkoutPlan().days.find((day) => day.dayOfWeek === today)?.id ?? null;
-  });
-  const [planVersion, setPlanVersion] = useState(0);
-  const [sessions, setSessions] = useState(() => listSessions());
+  const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
 
+  // Lista piani → piano attivo → dettaglio con giorni/esercizi annidati.
+  const plansQuery = useWorkoutPlans();
+  const plans = plansQuery.data ?? [];
+  const activePlan = plans.find((plan) => plan.isActive) ?? plans[0] ?? null;
+  const planQuery = useWorkoutPlan(activePlan?.id);
+  const sessionsQuery = useWorkoutSessions();
+
+  const plan = planQuery.data ?? null;
+  const days = plan?.days ?? [];
   const todayKey = getTodayDayOfWeek();
 
-  // Al ritorno dall'allenamento attivo: aggiorna lo storico e mostra il
-  // messaggio "Allenamento completato!" (consumato una sola volta).
+  // Al ritorno dall'allenamento attivo: mostra il messaggio una volta sola.
   useFocusEffect(
     useCallback(() => {
-      setSessions(listSessions());
       if (consumeWorkoutCompletedNotice()) {
         setShowCompleted(true);
         const timer = setTimeout(() => setShowCompleted(false), 6000);
@@ -62,11 +71,19 @@ export default function SchedaScreen() {
     }, []),
   );
 
-  const planDays = getWorkoutPlan().days;
-  const daysOrdered = WEEKDAYS.map((weekday) => planDays.find((day) => day.dayOfWeek === weekday));
-  const todayId = planDays.find((day) => day.dayOfWeek === todayKey)?.id ?? null;
-  // Se il giorno espanso è stato sostituito (upsert), riapri quello di oggi.
-  const resolvedExpanded = planDays.some((day) => day.id === expandedDayId)
+  const isLoading = plansQuery.isLoading || planQuery.isLoading;
+  const isError = plansQuery.isError || planQuery.isError;
+  const error = plansQuery.error ?? planQuery.error;
+
+  function refetch() {
+    if (plansQuery.isError) void plansQuery.refetch();
+    else void planQuery.refetch();
+  }
+
+  const daysOrdered = WEEKDAYS.map((weekday) => days.find((day) => day.dayOfWeek === weekday));
+  const todayId = days.find((day) => day.dayOfWeek === todayKey)?.id ?? null;
+  // Se il giorno espanso non esiste più (sostituito dal modal), si apre quello di oggi.
+  const resolvedExpanded = days.some((day) => day.id === expandedDayId)
     ? expandedDayId
     : todayId;
 
@@ -74,9 +91,9 @@ export default function SchedaScreen() {
     setExpandedDayId((previous) => (previous === id ? null : id));
   }
 
-  function handleModalDone() {
-    setPlanVersion((version) => version + 1);
-    setSessions(listSessions());
+  /** Chiude il modal aprendo il giorno appena salvato. */
+  function handleModalDone(dayId: string) {
+    setExpandedDayId(dayId);
   }
 
   const weeklyList = (
@@ -114,9 +131,88 @@ export default function SchedaScreen() {
   const historySection = (
     <View className="gap-4">
       <Text className="font-inter-semibold text-base text-foreground">Storico sessioni</Text>
-      <WorkoutHistoryList sessions={sessions} />
+      {sessionsQuery.isLoading ? (
+        <View className="items-center py-4">
+          <ActivityIndicator color="#F97316" />
+        </View>
+      ) : sessionsQuery.isError ? (
+        <Card>
+          <Text className="font-sans text-sm text-muted">
+            {errorMessage(sessionsQuery.error)}
+          </Text>
+        </Card>
+      ) : (
+        <WorkoutHistoryList
+          sessions={sessionsQuery.data ?? []}
+          dayNames={Object.fromEntries(days.map((day) => [day.id, day.name]))}
+        />
+      )}
     </View>
   );
+
+  /** Contenuto della schermata sotto l'header: loading, errore o dati. */
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <View className="items-center gap-3 py-10">
+        <ActivityIndicator color="#F97316" />
+        <Text className="font-sans text-sm text-muted">Caricamento della scheda…</Text>
+      </View>
+    );
+  } else if (isError) {
+    body = (
+      <Card className="items-center gap-3 p-6">
+        <Text className="font-inter-semibold text-base text-foreground">
+          Impossibile caricare la scheda
+        </Text>
+        <Text className="text-center font-sans text-sm text-muted">{errorMessage(error)}</Text>
+        {isInteractive ? (
+          <Pressable
+            onPress={refetch}
+            accessibilityRole="button"
+            className="mt-1 flex-row cursor-pointer items-center gap-1.5 rounded-xl bg-primary px-5 py-3 active:opacity-80"
+          >
+            <RefreshCw size={16} color="#0F172A" strokeWidth={2.5} />
+            <Text className="font-inter-bold text-sm text-primary-foreground">Riprova</Text>
+          </Pressable>
+        ) : null}
+      </Card>
+    );
+  } else if (!activePlan || !plan) {
+    body = (
+      <Card className="items-center gap-3 p-6">
+        <Text className="font-inter-semibold text-base text-foreground">
+          Nessun piano di allenamento
+        </Text>
+        <Text className="text-center font-sans text-sm text-muted">
+          Crea il tuo primo giorno di scheda per iniziare ad allenarti.
+        </Text>
+        {isInteractive ? (
+          <Pressable
+            onPress={() => setModalOpen(true)}
+            accessibilityRole="button"
+            className="mt-1 flex-row cursor-pointer items-center gap-1.5 rounded-xl bg-primary px-5 py-3 active:opacity-80"
+          >
+            <Plus size={16} color="#0F172A" strokeWidth={2.5} />
+            <Text className="font-inter-bold text-sm text-primary-foreground">Crea scheda</Text>
+          </Pressable>
+        ) : null}
+      </Card>
+    );
+  } else {
+    body = (
+      <View className="w-full gap-4">
+        <Text className="font-inter-semibold text-base text-foreground">Piano settimanale</Text>
+        {weeklyList}
+        {historySection}
+      </View>
+    );
+  }
+
+  const modeLabel = isInteractive
+    ? "Piano settimanale e storico delle sessioni"
+    : "Sola lettura su browser — installa la PWA per modificare";
+  const subtitle = plan && !isLoading && !isError ? `${plan.name} · ${modeLabel}` : modeLabel;
 
   return (
     <Screen>
@@ -130,11 +226,7 @@ export default function SchedaScreen() {
         <View className="flex-row items-center gap-4">
           <View className="flex-1">
             <Text className="font-inter-bold text-3xl text-foreground">La mia scheda</Text>
-            <Text className="mt-1 font-sans text-sm text-muted">
-              {isInteractive
-                ? "Piano settimanale e storico delle sessioni"
-                : "Sola lettura su browser — installa la PWA per modificare"}
-            </Text>
+            <Text className="mt-1 font-sans text-sm text-muted">{subtitle}</Text>
           </View>
           {isInteractive ? (
             <Pressable
@@ -167,7 +259,7 @@ export default function SchedaScreen() {
           </View>
         ) : null}
 
-        {isWide ? (
+        {isWide && !isLoading && !isError && activePlan ? (
           /* Layout desktop: scheda a sinistra, storico a destra */
           <View className="w-full flex-row items-start gap-6">
             <View className="flex-1 gap-4">
@@ -179,18 +271,13 @@ export default function SchedaScreen() {
             <View className="flex-1">{historySection}</View>
           </View>
         ) : (
-          <View className="w-full gap-4">
-            <Text className="font-inter-semibold text-base text-foreground">
-              Piano settimanale
-            </Text>
-            {weeklyList}
-            {historySection}
-          </View>
+          body
         )}
       </ScrollView>
 
       <CreateWorkoutModal
         visible={modalOpen}
+        planId={activePlan?.id ?? null}
         onClose={() => setModalOpen(false)}
         onDone={handleModalDone}
       />

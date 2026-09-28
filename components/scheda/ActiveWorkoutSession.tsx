@@ -18,7 +18,11 @@ import {
   Timer,
 } from "lucide-react-native";
 import type { WorkoutDay } from "@/types";
-import { addWorkoutSession } from "@/lib/mock-data";
+import { isApiError } from "@/lib/api";
+import {
+  markWorkoutCompleted,
+  useCreateWorkoutSession,
+} from "@/lib/workoutQueries";
 import { Card } from "@/components/home/Card";
 
 /** Recupero standard tra le serie (secondi). */
@@ -56,13 +60,16 @@ type ActiveWorkoutSessionProps = {
 /**
  * Vista allenamento attivo: progresso esercizi, registrazione serie
  * (completata / peso / ripetizioni), contatore serie, timer di recupero
- * e chiusura sessione → salvataggio nel mock store → ritorno alla Scheda.
+ * e chiusura sessione → POST /workout-sessions → ritorno alla Scheda.
  */
 export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
   const [index, setIndex] = useState(0);
   const [logs, setLogs] = useState<ExerciseLogs>(() => initLogs(day));
   const [restRemaining, setRestRemaining] = useState<number | null>(null);
+  const [finishError, setFinishError] = useState<string | null>(null);
   const startedAtRef = useRef(Date.now());
+
+  const createSession = useCreateWorkoutSession();
 
   const totalExercises = day.exercises.length;
   const current = day.exercises[index];
@@ -71,9 +78,6 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
 
   const completedInCurrent = currentLog.filter((set) => set.completed).length;
   const allSetsDone = completedInCurrent === currentLog.length;
-  const totalSets = logs.reduce((sum, log) => sum + log.length, 0);
-  const doneSets = logs.reduce((sum, log) => sum + log.filter((set) => set.completed).length, 0);
-
   // Avanzamento "Esercizio X di N": esercizi chiusi + frazione delle serie correnti.
   const progress =
     totalExercises === 0
@@ -115,22 +119,45 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
   }
 
   function handleFinish() {
-    if (!allSetsDone || !isLast) return;
-    const endedAt = new Date();
+    if (!allSetsDone || !isLast || createSession.isPending) return;
+    const completedAt = new Date();
     const startedAt = new Date(startedAtRef.current);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((endedAt.getTime() - startedAt.getTime()) / 60000),
+
+    // Solo le serie completate entrano nel performed_data dell'API:
+    // [{exercise_id, sets: [{reps, weight_kg?}]}].
+    const performed = day.exercises
+      .map((exercise, exerciseIndex) => ({
+        exercise_id: exercise.id,
+        sets: logs[exerciseIndex]
+          .filter((set) => set.completed)
+          .map((set) => {
+            const weight = parseFloat(set.weight.replace(",", "."));
+            const reps = parseInt(set.reps, 10);
+            return {
+              reps: Number.isFinite(reps) && reps > 0 ? reps : 0,
+              ...(Number.isFinite(weight) && weight > 0 ? { weight_kg: weight } : {}),
+            };
+          }),
+      }))
+      .filter((entry) => entry.sets.length > 0);
+
+    setFinishError(null);
+    createSession.mutate(
+      { planId: day.planId, dayId: day.id, startedAt, completedAt, performed },
+      {
+        onSuccess: () => {
+          // La Scheda mostra il banner "Allenamento completato!" al ritorno.
+          markWorkoutCompleted();
+          router.back();
+        },
+        onError: (error) =>
+          setFinishError(
+            isApiError(error)
+              ? error.message
+              : "Salvataggio non riuscito: controlla la connessione.",
+          ),
+      },
     );
-    const caloriesBurned = Math.round(durationMinutes * 8.5 + doneSets * 4);
-    addWorkoutSession({
-      dayId: day.id,
-      startedAt: startedAt.toISOString(),
-      endedAt: endedAt.toISOString(),
-      durationMinutes,
-      caloriesBurned,
-    });
-    router.back();
   }
 
   const isRestDone = restRemaining === 0;
@@ -296,16 +323,16 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
         {isLast ? (
           <Pressable
             onPress={handleFinish}
-            disabled={!allSetsDone}
+            disabled={!allSetsDone || createSession.isPending}
             accessibilityRole="button"
             accessibilityLabel="Termina allenamento"
             className={`flex-row cursor-pointer items-center justify-center gap-2 rounded-xl bg-accent py-4 active:opacity-80 ${
-              allSetsDone ? "" : "opacity-40"
+              allSetsDone && !createSession.isPending ? "" : "opacity-40"
             }`}
           >
             <Flag size={18} color="#0F172A" strokeWidth={2.5} />
             <Text className="font-inter-bold text-base text-primary-foreground">
-              Termina allenamento
+              {createSession.isPending ? "Salvataggio…" : "Termina allenamento"}
             </Text>
           </Pressable>
         ) : (
@@ -329,6 +356,10 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
           <Text className="text-center font-sans text-xs text-muted">
             Completa tutte le serie dell'esercizio per continuare.
           </Text>
+        ) : null}
+
+        {finishError ? (
+          <Text className="text-center font-sans text-sm text-destructive">{finishError}</Text>
         ) : null}
       </ScrollView>
     </KeyboardAvoidingView>

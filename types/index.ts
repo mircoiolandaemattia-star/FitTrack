@@ -37,6 +37,8 @@ export interface WorkoutPlan {
   userId: string;
   name: string;
   source: string;
+  /** Piano attivo del profilo (colonna `is_active` del backend). */
+  isActive?: boolean;
   days: WorkoutDay[];
   createdAt: string;
 }
@@ -69,7 +71,8 @@ export interface WorkoutSession {
   startedAt: string;
   endedAt: string;
   durationMinutes: number;
-  caloriesBurned: number;
+  /** Assente: il backend non registra le calorie della sessione. */
+  caloriesBurned?: number;
 }
 
 export interface DietPlan {
