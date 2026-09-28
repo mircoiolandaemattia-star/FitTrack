@@ -3,6 +3,7 @@ import { Appearance } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -11,10 +12,27 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { isProfileMissing, useProfile } from "@/lib/profileQueries";
 import "../global.css";
 
 // Tieni visibile lo splash finché font e stato auth non sono pronti.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/**
+ * Client unico per tutta l'app: ogni schermata usa useQuery/useMutation
+ * invece di gestire loading ed errori a mano.
+ */
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Un solo ritento automatico: poi la UI mostra l'errore con retry.
+      retry: 1,
+      // I dati restano validi 30s: navigare su e giù non rifà ogni volta.
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+    },
+  },
+});
 
 export default function RootLayout() {
   // Il design system è dark-only: forza l'aspetto scuro anche se il
@@ -26,9 +44,11 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -40,33 +60,62 @@ function RootNavigator() {
     Inter_700Bold,
   });
 
-  const { isLoading, isAuthenticated, hasCompletedOnboarding, user } = useAuth();
+  const { isLoading, isAuthenticated } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
-  // Guard di navigazione: login → onboarding (acceptedDisclaimer) → tab.
+  /**
+   * Profilo utente: è l'unica fonte di verità sull'onboarding.
+   * 404 su GET /users/me → la riga non esiste ancora → onboarding.
+   */
+  const profileQuery = useProfile(isAuthenticated);
+  // Solo se non c'è un profilo in cache: dopo il POST dell'onboarding la
+  // cache è già aggiornata e il vecchio 404 non deve più rimandare lì.
+  const profileMissing = isProfileMissing(profileQuery.error) && profileQuery.data === undefined;
+
+  // Guard di navigazione: login → profilo (404 → onboarding) → tab.
   useEffect(() => {
     if (isLoading || !fontsLoaded) return;
 
     const inAuthGroup = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
-    const needsOnboarding = !hasCompletedOnboarding || user?.acceptedDisclaimer === false;
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace("/(auth)/login");
-    } else if (isAuthenticated && needsOnboarding && !inOnboarding) {
-      router.replace("/onboarding");
-    } else if (isAuthenticated && !needsOnboarding && (inAuthGroup || inOnboarding)) {
+      return;
+    }
+    if (!isAuthenticated) return;
+
+    // In attesa del profilo non si decide niente (evita rimbalzi).
+    if (!profileQuery.isFetched) return;
+
+    if (profileMissing) {
+      if (!inOnboarding) router.replace("/onboarding");
+      return;
+    }
+    // Si torna alle tab solo con un profilo confermato dall'API.
+    if (profileQuery.isSuccess && (inAuthGroup || inOnboarding)) {
       router.replace("/(tabs)/home");
     }
-  }, [isLoading, fontsLoaded, isAuthenticated, hasCompletedOnboarding, user?.acceptedDisclaimer, segments, router]);
+  }, [
+    isLoading,
+    fontsLoaded,
+    isAuthenticated,
+    profileQuery.isFetched,
+    profileQuery.isSuccess,
+    profileMissing,
+    segments,
+    router,
+  ]);
 
-  // Nascondi lo splash solo quando tutto è pronto.
+  // Nascondi lo splash solo quando tutto è pronto (niente flash di Home
+  // prima del redirect all'onboarding).
   useEffect(() => {
-    if (!isLoading && fontsLoaded) {
+    const profileReady = !isAuthenticated || profileQuery.isFetched;
+    if (!isLoading && fontsLoaded && profileReady) {
       SplashScreen.hideAsync();
     }
-  }, [isLoading, fontsLoaded]);
+  }, [isLoading, fontsLoaded, isAuthenticated, profileQuery.isFetched]);
 
   if (isLoading || !fontsLoaded) {
     return null;

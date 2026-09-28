@@ -3,6 +3,13 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
+import { isApiError } from "@/lib/api";
+import {
+  ACTIVITY_TO_API,
+  GOAL_TO_API,
+  birthDateFromAge,
+  useCreateProfile,
+} from "@/lib/profileQueries";
 import { OnboardingProgressBar } from "@/components/onboarding/OnboardingProgressBar";
 import { PersonalDataStep, isPersonalDataValid, type PersonalData } from "@/components/onboarding/PersonalDataStep";
 import { GoalStep } from "@/components/onboarding/GoalStep";
@@ -14,7 +21,8 @@ import { calculateTDEE, type ActivityLevel, type Goal, type Gender } from "@/lib
 const TOTAL = 5;
 
 export default function OnboardingScreen() {
-  const { user, updateUser, completeOnboarding } = useAuth();
+  const { user, updateUser } = useAuth();
+  const createProfile = useCreateProfile();
   const [step, setStep] = useState(1);
 
   const [personal, setPersonal] = useState<PersonalData>({
@@ -28,6 +36,7 @@ export default function OnboardingScreen() {
   const [activity, setActivity] = useState<ActivityLevel | "">((user?.activityLevel as ActivityLevel) ?? "");
   const [accepted, setAccepted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const canNext = useMemo(() => {
     if (step === 1) return isPersonalDataValid(personal);
@@ -46,20 +55,56 @@ export default function OnboardingScreen() {
 
   async function handleFinish() {
     if (saving) return;
+    if (!goal || !activity) return;
+    setSaveError(null);
+
+    const { a, w, h } = tdeeData;
+    // Età sensata: il backend accetta qualsiasi passato, ma 500 anni non lo è.
+    if (!(a >= 1 && a <= 120)) {
+      setSaveError("Inserisci un'età compresa tra 1 e 120 anni.");
+      return;
+    }
+
     setSaving(true);
-    const tdee = calculateTDEE(tdeeData.w, tdeeData.h, tdeeData.a, personal.gender as Gender, activity as ActivityLevel, goal as Goal);
+    const tdee = calculateTDEE(w, h, a, personal.gender as Gender, activity, goal);
+    try {
+      // 1) Riga profilo sul server: da qui in poi GET /users/me risponde 200
+      //    e il guard di navigazione non manda più all'onboarding.
+      await createProfile.mutateAsync({
+        name: personal.name.trim() || user?.name || "Utente",
+        // L'UI raccoglie l'età: il backend vuole birth_date (vedi profiloQueries).
+        birth_date: birthDateFromAge(a),
+        gender: personal.gender as Gender,
+        height_cm: h,
+        weight_kg: w,
+        goal: GOAL_TO_API[goal],
+        activity_level: ACTIVITY_TO_API[activity],
+      });
+    } catch (error) {
+      // 409 = profilo già creato (onboarding rifatto): si prosegue comunque.
+      if (!(isApiError(error) && error.status === 409)) {
+        setSaveError(
+          isApiError(error)
+            ? error.message
+            : "Salvataggio non riuscito: controlla la connessione.",
+        );
+        setSaving(false);
+        return;
+      }
+    }
+
+    // 2) Profilo locale: campi usati dalle schermate ancora a mock.
     await updateUser({
       name: personal.name.trim() || user?.name || "Utente",
-      age: tdeeData.a || null,
+      age: a || null,
       gender: personal.gender || null,
-      weightKg: tdeeData.w || null,
-      heightCm: tdeeData.h || null,
+      weightKg: w || null,
+      heightCm: h || null,
       goal: goal || null,
       activityLevel: activity || null,
       dailyCalories: tdee,
       acceptedDisclaimer: true,
     });
-    await completeOnboarding();
     router.replace("/(tabs)/home");
     setSaving(false);
   }
@@ -85,6 +130,10 @@ export default function OnboardingScreen() {
             />
           ) : null}
         </ScrollView>
+
+        {saveError ? (
+          <Text className="pb-3 font-sans text-sm text-destructive">{saveError}</Text>
+        ) : null}
 
         <View className="flex-row gap-3 pb-8 pt-2">
           {step > 1 ? (

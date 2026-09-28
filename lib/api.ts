@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { getItem, removeItem } from "./storage";
+import { supabase } from "./supabase";
 
 const TOKEN_KEY = "fittrack_token";
 const USER_KEY = "fittrack_user";
@@ -14,12 +15,54 @@ export const API_BASE =
 
 export class ApiError extends Error {
   readonly status: number;
+  /** `code` dell'envelope di errore del backend (es. NOT_FOUND, P2002). */
+  readonly code: string;
+  /** Eventuali dettagli di validizzazione restituiti dall'API. */
+  readonly details?: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
+}
+
+/** Type guard: true se l'errore viene dall'API (non da rete/serializzazione). */
+export function isApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError;
+}
+
+/**
+ * Converte una risposta non-2xx in `ApiError`.
+ * L'API risponde sempre `{"error": {"code", "message", "details?"}}`:
+ * se il body non rispetta l'envelope (HTML di un proxy, testo grezzo…)
+ * si conserva il testo come messaggio e si sintetizza un codice HTTP_500.
+ */
+async function toApiError(response: Response): Promise<ApiError> {
+  const fallbackCode = `HTTP_${response.status}`;
+  const raw = await response.text().catch(() => "");
+  if (!raw) {
+    return new ApiError(response.status, fallbackCode, `Errore ${response.status}`);
+  }
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { code?: unknown; message?: unknown; details?: unknown };
+    };
+    const envelope = parsed?.error;
+    if (envelope && typeof envelope.message === "string") {
+      return new ApiError(
+        response.status,
+        typeof envelope.code === "string" ? envelope.code : fallbackCode,
+        envelope.message,
+        envelope.details,
+      );
+    }
+  } catch {
+    // Body non JSON: si procede con il testo grezzo.
+  }
+  return new ApiError(response.status, fallbackCode, raw);
 }
 
 export class UnauthorizedError extends Error {
@@ -67,13 +110,15 @@ export async function apiFetch<T = unknown>(
   if (response.status === 401) {
     await removeItem(TOKEN_KEY);
     await removeItem(USER_KEY);
+    // Allinea anche lo stato Supabase (solo locale, nessuna chiamata):
+    // così il guard di navigazione vede la sessione terminata.
+    supabase.auth.signOut({ scope: "local" }).catch(() => {});
     router.replace("/(auth)/login");
     throw new UnauthorizedError();
   }
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new ApiError(response.status, body || `Errore ${response.status}`);
+    throw await toApiError(response);
   }
 
   if (response.status === 204) {
