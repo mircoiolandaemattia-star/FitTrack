@@ -4,6 +4,7 @@ import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
 import * as foodItems from "../api/foodItems";
 import * as meals from "../api/meals";
+import * as progressPhotos from "../api/progressPhotos";
 import * as users from "../api/users";
 import * as workoutDays from "../api/workoutDays";
 import * as workoutPlans from "../api/workoutPlans";
@@ -57,6 +58,11 @@ export function apiRouter(): Router {
   router.get("/body-measurements/:id", wrap(bodyMeasurements.getBodyMeasurement));
   router.put("/body-measurements/:id", wrap(bodyMeasurements.updateBodyMeasurement));
   router.delete("/body-measurements/:id", wrap(bodyMeasurements.deleteBodyMeasurement));
+
+  // Solo lista + POST + DELETE: niente GET/PUT by `:id`
+  router.get("/progress-photos", wrap(progressPhotos.listProgressPhotos));
+  router.post("/progress-photos", wrap(progressPhotos.createProgressPhoto));
+  router.delete("/progress-photos/:id", wrap(progressPhotos.deleteProgressPhoto));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));

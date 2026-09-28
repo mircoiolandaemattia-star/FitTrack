@@ -935,6 +935,86 @@ def main():
         run("GET /body-measurements dopo DELETE → 200 con una riga", "GET",
             "/api/body-measurements", status=200, test=only_first_bm)
 
+        # --- progress_photos: lista + POST + DELETE, nessun PUT
+        pp_ids = []
+
+        def pp_created(payload):
+            pp_ids.append(payload["id"])
+            ok = (payload["user_id"] == USER_ID and payload["date"][:10] == "2026-09-01"
+                  and payload["photo_url"] == "https://cdn.test/fronte-1.jpg")
+            return ok, json.dumps(payload)[:300]
+
+        run("POST /progress-photos → 201 (user_id dal token)", "POST",
+            "/api/progress-photos",
+            body={"date": "2026-09-01",
+                  "photo_url": "https://cdn.test/fronte-1.jpg",
+                  "user_id": OTHER_ID},
+            status=201, test=pp_created)
+        pp_id = pp_ids[0]
+
+        def pp_created_2(payload):
+            pp_ids.append(payload["id"])
+            return payload["date"][:10] == "2026-09-15", json.dumps(payload)[:300]
+
+        run("POST /progress-photos (seconda, per il DELETE)", "POST",
+            "/api/progress-photos",
+            body={"date": "2026-09-15", "photo_url": "/storage/fittrack/p2.jpg"},
+            status=201, test=pp_created_2)
+        pp_delete_id = pp_ids[1]
+
+        run("POST /progress-photos senza photo_url → 400", "POST",
+            "/api/progress-photos", body={"date": "2026-09-01"},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /progress-photos photo_url vuota → 400", "POST",
+            "/api/progress-photos",
+            body={"date": "2026-09-01", "photo_url": "   "},
+            status=400, code="VALIDATION_ERROR")
+        run("POST /progress-photos data non valida → 400", "POST",
+            "/api/progress-photos",
+            body={"date": "ieri", "photo_url": "https://cdn.test/x.jpg"},
+            status=400, code="VALIDATION_ERROR")
+
+        def two_photos(payload):
+            ids = [p["id"] for p in payload]
+            # ordinamento per data desc: 15/09 prima del 01/09
+            return ids == [pp_delete_id, pp_id], str(ids)[:300]
+
+        def only_first_photo(payload):
+            ids = [p["id"] for p in payload]
+            return ids == [pp_id], str(ids)[:300]
+
+        run("GET /progress-photos senza filtro → 200 lista propria", "GET",
+            "/api/progress-photos", status=200, test=two_photos)
+        run("GET /progress-photos?from&to → 200", "GET",
+            "/api/progress-photos?from=2026-09-10&to=2026-09-20", status=200,
+            test=lambda p: ([x["id"] for x in p] == [pp_delete_id], str(p)[:300]))
+        run("GET /progress-photos?from>to → 400", "GET",
+            "/api/progress-photos?from=2026-09-20&to=2026-09-10", status=400,
+            code="VALIDATION_ERROR")
+        run("Altro utente: lista foto → 200 vuota", "GET",
+            "/api/progress-photos", status=200, token=intruder,
+            test=lambda p: (p == [], str(p)[:300]))
+        run("GET /progress-photos/:id → 404 ROUTE_NOT_FOUND (nessuna rota)",
+            "GET", f"/api/progress-photos/{pp_id}", status=404,
+            code="ROUTE_NOT_FOUND")
+        run("PUT /progress-photos/:id → 404 ROUTE_NOT_FOUND (nessun PUT)",
+            "PUT", f"/api/progress-photos/{pp_id}",
+            body={"photo_url": "https://cdn.test/h.jpg"}, status=404,
+            code="ROUTE_NOT_FOUND")
+        run("Altro utente: DELETE foto altrui → 404", "DELETE",
+            f"/api/progress-photos/{pp_id}", status=404, code="NOT_FOUND",
+            token=intruder)
+
+        # DELETE + P2025 sulla seconda foto
+        status, _ = req("DELETE", f"/api/progress-photos/{pp_delete_id}")
+        record("DELETE /progress-photos/:id → 204", status == 204,
+               f"atteso 204, ricevuto {status}")
+        status, text = req("DELETE", f"/api/progress-photos/{pp_delete_id}")
+        record("DELETE foto due volte → 404 (P2025)", status == 404,
+               f"atteso 404, ricevuto {status}", text[:200])
+        run("GET /progress-photos dopo DELETE → 200 con una foto", "GET",
+            "/api/progress-photos", status=200, test=only_first_photo)
+
         # --- DELETE (con cascata)
         status, _ = req("DELETE", f"/api/workout-days/{day_id}")
         record("DELETE /workout-days/:id → 204", status == 204,
