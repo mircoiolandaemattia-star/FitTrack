@@ -3,13 +3,12 @@ import { ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { useAuth } from "@/lib/auth";
-import {
-  getQuickStats,
-  getTodayMeals,
-  getTodayWorkoutDay,
-  MOCK_CALORIE_TARGET,
-  MOCK_CALORIES_CONSUMED,
-} from "@/lib/mock-data";
+import { dateToString } from "@/lib/dietaStore";
+import { useDiaryDay } from "@/lib/dietQueries";
+import { getTodayDayOfWeek, type QuickStats as QuickStatsData } from "@/lib/mock-data";
+import { useProfile } from "@/lib/profileQueries";
+import { useWorkoutPlan, useWorkoutPlans, useWorkoutSessions } from "@/lib/workoutQueries";
+import type { WorkoutSession } from "@/types";
 import { CalorieRing } from "@/components/home/CalorieRing";
 import { WorkoutTodayCard } from "@/components/home/WorkoutTodayCard";
 import { MealsSummaryCard } from "@/components/home/MealsSummaryCard";
@@ -34,13 +33,58 @@ function formatToday(date: Date): string {
 }
 
 /**
+ * Statistiche rapide derivate dalle sessioni salvate:
+ * - **streak**: giorni consecutivi con almeno una sessione; se oggi non ce
+ *   n'è ancora parte da ieri, così non si azzera al mattino;
+ * - **ore settimanali**: durata delle sessioni dalla mezzanotte di lunedì;
+ * - **sessioni totali**: tutte le sessioni chiuse.
+ */
+function computeQuickStats(sessions: WorkoutSession[]): QuickStatsData {
+  const today = new Date();
+  const dayKeys = new Set(sessions.map((session) => dateToString(new Date(session.startedAt))));
+
+  const weekStart = new Date(today);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const weeklyMinutes = sessions
+    .filter((session) => new Date(session.startedAt) >= weekStart)
+    .reduce((sum, session) => sum + session.durationMinutes, 0);
+
+  const cursor = new Date(today);
+  cursor.setHours(0, 0, 0, 0);
+  if (!dayKeys.has(dateToString(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streakDays = 0;
+  while (dayKeys.has(dateToString(cursor))) {
+    streakDays += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return {
+    streakDays,
+    weeklyHours: Math.round((weeklyMinutes / 60) * 10) / 10,
+    totalSessions: sessions.length,
+  };
+}
+
+/**
  * Home / Dashboard: header con saluto, card calorie, allenamento di oggi,
- * pasti e statistiche. Su schermi larghi (>768px) il layout diventa a 2 colonne.
+ * pasti e statistiche — dati reali dal backend (profilo, diario, scheda
+ * attiva, sessioni). Su schermi larghi (>768px) il layout diventa a 2 colonne.
  */
 export default function HomeScreen() {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
+
+  const today = useMemo(() => dateToString(new Date()), []);
+
+  const profileQuery = useProfile();
+  const diary = useDiaryDay(today);
+  const plansQuery = useWorkoutPlans();
+  const activePlanId =
+    plansQuery.data?.find((plan) => plan.isActive)?.id ?? plansQuery.data?.[0]?.id ?? null;
+  const planQuery = useWorkoutPlan(activePlanId);
+  const sessionsQuery = useWorkoutSessions();
 
   const displayName = useMemo(() => {
     if (!user?.name) return "";
@@ -49,13 +93,30 @@ export default function HomeScreen() {
     return first.charAt(0).toUpperCase() + first.slice(1);
   }, [user?.name]);
 
+  const target = profileQuery.data?.daily_calorie_target ?? 0;
+  const consumed = diary.totals.calories;
+
+  // Solo pasti con almeno un alimento: i gruppi vuoti non sono pasti fatti.
+  const mealsToday = useMemo(
+    () => diary.meals.filter((meal) => meal.foodItems.length > 0),
+    [diary.meals],
+  );
+
+  // Giorno programmato per oggi: nessun giorno → il card mostra il riposo.
+  const workoutDay = useMemo(
+    () => planQuery.data?.days.find((day) => day.dayOfWeek === getTodayDayOfWeek()) ?? null,
+    [planQuery.data],
+  );
+
+  const stats = useMemo(
+    () => computeQuickStats(sessionsQuery.data ?? []),
+    [sessionsQuery.data],
+  );
+
   const data = useMemo(
     () => ({
       greeting: getGreeting(new Date()),
       dateLabel: formatToday(new Date()),
-      workoutDay: getTodayWorkoutDay(),
-      meals: getTodayMeals(),
-      stats: getQuickStats(),
     }),
     [],
   );
@@ -87,24 +148,21 @@ export default function HomeScreen() {
         /* Layout desktop: 2 colonne */
         <View className="w-full flex-row items-start gap-4">
           <View className="flex-1 gap-4">
-            <CalorieRing
-              consumed={MOCK_CALORIES_CONSUMED}
-              target={MOCK_CALORIE_TARGET}
-            />
-            <MealsSummaryCard meals={data.meals} />
+            <CalorieRing consumed={consumed} target={target} />
+            <MealsSummaryCard meals={mealsToday} />
           </View>
           <View className="flex-1 gap-4">
-            <WorkoutTodayCard day={data.workoutDay} />
-            <QuickStats stats={data.stats} />
+            <WorkoutTodayCard day={workoutDay} />
+            <QuickStats stats={stats} />
           </View>
         </View>
       ) : (
         /* Layout mobile: tutto verticale */
         <View className="w-full gap-4">
-          <CalorieRing consumed={MOCK_CALORIES_CONSUMED} target={MOCK_CALORIE_TARGET} />
-          <WorkoutTodayCard day={data.workoutDay} />
-          <MealsSummaryCard meals={data.meals} />
-          <QuickStats stats={data.stats} />
+          <CalorieRing consumed={consumed} target={target} />
+          <WorkoutTodayCard day={workoutDay} />
+          <MealsSummaryCard meals={mealsToday} />
+          <QuickStats stats={stats} />
         </View>
       )}
       </ScrollView>
