@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
-import type { WeightPoint } from "@/lib/progressMock";
+import type { WeightPoint } from "@/lib/progressQueries";
 
 type Props = {
   points: WeightPoint[];

@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 import { Plus, Ruler } from "lucide-react-native";
-import type { MeasurementDiff } from "@/lib/progressMock";
+import type { MeasurementDiff } from "@/lib/progressQueries";
 
 type Props = {
   diffs: MeasurementDiff[];

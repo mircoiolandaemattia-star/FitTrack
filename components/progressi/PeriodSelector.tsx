@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native";
-import type { Period } from "@/lib/progressMock";
-import { PERIOD_LABELS } from "@/lib/progressMock";
+import type { Period } from "@/lib/progressQueries";
+import { PERIOD_LABELS } from "@/lib/progressQueries";
 
 type Props = {
   value: Period;

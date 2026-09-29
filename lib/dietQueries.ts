@@ -83,6 +83,8 @@ const API_MEAL_TYPE_TO_LABEL: Record<ApiMealType, MealType> = {
 export const dietKeys = {
   plans: ["diet", "plans"] as const,
   meals: (date: string) => ["diet", "meals", date] as const,
+  /** Pasti in un intervallo (usato dal grafico calorie dei Progressi). */
+  mealsRange: (from: string, to: string) => ["diet", "meals", "range", from, to] as const,
   foodItems: (mealId: string) => ["diet", "food-items", mealId] as const,
   /** Prefisso per invalidare TUTTE le query degli alimenti. */
   foodItemsAll: ["diet", "food-items"] as const,
@@ -113,12 +115,21 @@ export function useMealsForDate(date: string) {
   });
 }
 
+/** Pasti in un intervallo di date (`from`/`to` compresi, `YYYY-MM-DD`). */
+export function useMealsInRange(from: string, to: string) {
+  return useQuery({
+    queryKey: dietKeys.mealsRange(from, to),
+    queryFn: () => api.get<ApiMeal[]>(`/meals?from=${from}&to=${to}`),
+    retry: noRetry,
+  });
+}
+
 /**
  * Alimenti dei pasti elencati: una query per pasto (l'API accetta solo
  * `meal_id`). L'elenco cambia a runtime → `useQueries`, risultati
  * allineati per indice con i pasti.
  */
-export function useDayFoodQueries(meals: ApiMeal[] | undefined) {
+export function useFoodQueries(meals: ApiMeal[] | undefined) {
   return useQueries({
     queries: (meals ?? []).map((meal) => ({
       queryKey: dietKeys.foodItems(meal.id),
@@ -168,7 +179,7 @@ export type DiaryDay = {
 
 export function useDiaryDay(date: string): DiaryDay {
   const mealsQuery = useMealsForDate(date);
-  const foodResults = useDayFoodQueries(mealsQuery.data);
+  const foodResults = useFoodQueries(mealsQuery.data);
 
   const apiMeals = mealsQuery.data ?? [];
   const itemsByMeal = new Map<string, FoodItem[]>();

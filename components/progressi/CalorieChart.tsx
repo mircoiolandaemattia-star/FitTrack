@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Svg, { Line, Rect, Text as SvgText } from "react-native-svg";
-import type { CaloriePoint } from "@/lib/progressMock";
+import type { CaloriePoint } from "@/lib/progressQueries";
 
 type Props = {
   average: number;
