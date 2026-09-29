@@ -4,16 +4,23 @@ piano/giorni/esercizi annidati → sessione. Stesse chiamate di lib/api.ts.
 Uso: python3 scripts/e2e-client-flow.py   (richiede backend :3000 + supabase :54321)
 """
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
 
-SUPA = "http://127.0.0.1:54321"
-API = "http://localhost:3000/api"
-ANON = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-        "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9."
-        "CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0")
+# Configurabili via env per rilanciare la suite contro il backend cloud:
+#   EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY → Supabase cloud
+#   API_BASE (senza /api) → https://<servizio-render>.onrender.com
+SUPA = os.environ.get("EXPO_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321")
+API = os.environ.get("API_BASE", "http://localhost:3000") + "/api"
+ANON = os.environ.get(
+    "EXPO_PUBLIC_SUPABASE_ANON_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9."
+    "CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+)
 
 results: list[tuple[str, bool, str]] = []
 

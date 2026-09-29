@@ -1,0 +1,30 @@
+# Blueprint Render — FitTrack API (backend Express + Prisma)
+# Crea il servizio con: Render Dashboard → New → Blueprint → collega il repo.
+# Le env con `sync: false` vanno inserite nel dashboard dopo la creazione
+# (sono segreti: non devono stare nel repo).
+services:
+  - type: web
+    name: fittrack-api
+    runtime: node
+    region: frankfurt          # il DB Supabase cloud è in eu-west-1 (Ireland)
+    buildCommand: npm install && npx prisma generate && tsc -p tsconfig.server.json
+    startCommand: node dist-server/server/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "26"
+      # Postgres Supabase cloud — pooler transazione (porta 6543, ?pgbouncer=true)
+      - key: DATABASE_URL
+        sync: false
+      # Secret JWT HS256 del progetto CLOUD (Settings → API → JWT Settings)
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # JWKS del progetto cloud (verifica token utente ES256)
+      - key: SUPABASE_JWKS_URL
+        value: https://akmqoezpeeichwiukuwi.supabase.co/auth/v1/.well-known/jwks.json
+      # Origin abilitate al CORS (CSV) — PUNTO 5: sostituire col dominio PWA reale
+      - key: ALLOWED_ORIGIN
+        value: http://localhost:8081
+      # Segreti futuri (aggiungere qui con sync: false quando servono):
+      #   GEMINI_API_KEY  — feature AI (scheda/dieta, foto pasti)
+      #   RESEND_API_KEY  — email transazionali
