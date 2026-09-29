@@ -24,19 +24,20 @@ interface AuthContextValue {
   /** Login reale: Supabase Auth, access_token salvato in AsyncStorage. */
   login: (email: string, password: string) => Promise<User>;
   /** Registrazione reale: Supabase Auth (l'app non ha API di registro). */
-  register: (name: string, email: string, password: string) => Promise<User>;
+  register: (name: string, email: string, password: string) => Promise<RegisterResult>;
   logout: () => Promise<void>;
   /** Aggiorna il profilo locale (disclaimer, TDEE, …): non va a rete. */
   updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
-/** Errore auth con messaggio già tradotto per l'utente. */
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthError";
-  }
-}
+/**
+ * Esito della registrazione. Con la conferma email attiva Supabase crea
+ * l'account ma non emette sessione: non è un errore, la schermata
+ * "controlla la mail" ci arriva da qui.
+ */
+export type RegisterResult =
+  | { status: "confirmed" }
+  | { status: "confirmation_required" };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -152,18 +153,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   const register = useCallback(
-    async (name: string, email: string, password: string) => {
+    async (name: string, email: string, password: string): Promise<RegisterResult> => {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: { data: { name: name.trim() } },
       });
       if (error) throw new Error(error.message);
-      // Con la conferma email attiva l'account esiste ma la sessione no.
-      if (!data.session || !data.user) {
-        throw new AuthError("Account creato: conferma l'email ricevuta, poi accedi.");
-      }
-      return persistUser(data.user);
+      // Conferma email attiva: l'account esiste, la sessione no.
+      if (!data.session || !data.user) return { status: "confirmation_required" };
+      await persistUser(data.user);
+      return { status: "confirmed" };
     },
     [persistUser],
   );

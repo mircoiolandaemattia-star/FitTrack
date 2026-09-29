@@ -87,11 +87,10 @@ export default function HomeScreen() {
   const sessionsQuery = useWorkoutSessions();
 
   const displayName = useMemo(() => {
-    if (!user?.name) return "";
-    const first = user.name.trim().split(/\s+/)[0];
+    const first = user?.name?.trim().split(/\s+/)[0] ?? "";
     if (!first) return "";
     return first.charAt(0).toUpperCase() + first.slice(1);
-  }, [user?.name]);
+  }, [user]);
 
   const target = profileQuery.data?.daily_calorie_target ?? 0;
   const consumed = diary.totals.calories;

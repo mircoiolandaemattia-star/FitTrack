@@ -5,10 +5,23 @@ import { Check, Mail, Lock, User } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
 import { AuthInput } from "@/components/auth/AuthInput";
-import { PasswordStrengthIndicator, getPasswordStrength } from "@/components/auth/PasswordStrengthIndicator";
+import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
 
 function isEmailValid(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+}
+
+/**
+ * Errore di signUp Supabase → messaggio mostrato all'utente: i casi
+ * frequenti arrivano in inglese e qui hanno la traduzione, il resto
+ * passa comunque così un intoppo reale non viene nascosto.
+ */
+function signupErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (!message) return "Registrazione non riuscita. Riprova.";
+  if (/already registered/i.test(message)) return "Esiste già un account con questa email.";
+  if (/rate limit/i.test(message)) return "Troppi tentativi: riprova tra qualche minuto.";
+  return message;
 }
 
 export default function RegisterScreen() {
@@ -25,7 +38,6 @@ export default function RegisterScreen() {
   const firstNameValid = firstName.trim().length >= 2;
   const lastNameValid = lastName.trim().length >= 2;
   const emailValid = isEmailValid(email);
-  const pwStrength = getPasswordStrength(password);
   const pwValid = password.length >= 6;
   const confirmValid = confirmPassword.length > 0 && confirmPassword === password;
 
@@ -39,10 +51,15 @@ export default function RegisterScreen() {
     setSubmitting(true);
     try {
       const fullName = `${firstName.trim()} ${lastName.trim()}`;
-      await register(fullName, email.trim(), password);
-      router.replace("/");
-    } catch {
-      setError("Registrazione non riuscita. Riprova.");
+      const result = await register(fullName, email.trim(), password);
+      if (result.status === "confirmation_required") {
+        // Account creato: va spiegata la mail di conferma, non un errore.
+        router.replace({ pathname: "/(auth)/check-email", params: { email: email.trim() } });
+      } else {
+        router.replace("/");
+      }
+    } catch (err) {
+      setError(signupErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
