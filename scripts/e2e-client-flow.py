@@ -136,15 +136,16 @@ def main() -> int:
     check("GET /workout-sessions → 200 e ritrova la sessione",
           status == 200 and any(r["id"] == session.get("id") for r in rows), f"{status}")
 
-    # --- CORS: preflight dal dev server Expo web ---
+    # --- CORS: preflight dall'origine prevista (dev locale o PWA cloud) ---
+    origin = os.environ.get("CORS_ORIGIN", "http://localhost:8081")
     status, _, hdrs = call("OPTIONS", f"{API}/workout-plans", headers={
-        "Origin": "http://localhost:8081",
+        "Origin": origin,
         "Access-Control-Request-Method": "POST",
         "Access-Control-Request-Headers": "authorization,content-type",
     })
     allow = hdrs.get("Access-Control-Allow-Origin") or hdrs.get("access-control-allow-origin")
-    check("CORS preflight da :8081 → 204 con allow-origin",
-          status in (200, 204) and allow == "http://localhost:8081", f"{status} {allow}")
+    check(f"CORS preflight da {origin} → 204 con allow-origin",
+          status in (200, 204) and allow == origin, f"{status} {allow}")
 
     failed = [name for name, ok, _ in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} verifiche superate")

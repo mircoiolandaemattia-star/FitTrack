@@ -263,6 +263,95 @@ Senza `PORT` il server usa 3000; se mancano `DATABASE_URL`,
 esce con codice 1 ed elenca le variabili mancanti, così un deploy mal
 configurato fallisce subito invece di dare errori a runtime.
 
+## Produzione (cloud)
+
+Mappa dei servizi:
+
+| Componente | Dove |
+| --- | --- |
+| Postgres + Auth | Supabase cloud (project ref `akmqoezpeeichwiukuwi`) |
+| Backend API | Render Web Service `https://fittrack-1-goh7.onrender.com` |
+| PWA | Vercel `https://fit-track-delta-green.vercel.app` |
+
+L'ambiente locale (Supabase CLI + server su `:3000`) resta intatto e non si
+mescola con la configurazione cloud.
+
+### Schema sul database cloud
+
+Le migrazioni Prisma si applicano dalla macchina di sviluppo sulla
+connessione **diretta** (porta 5432, IPv6-only sul piano Free — il pooler
+6543 non va usato per le migrazioni):
+
+```bash
+DIRECT_URL="<connessione diretta cloud>" DATABASE_URL="<stessa stringa>" \
+  npx prisma migrate deploy
+npx prisma migrate status    # Database schema is up to date!
+```
+
+I valori cloud (direct/pooler, anon key, JWT secret, JWKS) stanno in
+`.env.cloud.local` (git-ignored); `.env` resta la configurazione locale CLI.
+
+### Render
+
+Servizio creato dal blueprint `render.yaml` (build: `npm install &&
+npx prisma generate && tsc -p tsconfig.server.json`, start:
+`node dist-server/server/index.js`, health check `/health`). Variabili nel
+dashboard (dettagli anche in "Variabili d'ambiente runtime"):
+
+- `DATABASE_URL` — pooler cloud porta **6543** con `?pgbouncer=true`
+  (**obbligatorio**: senza il flag Prisma usa i prepared statement, che nel
+  transaction pooling di Supavisor falliscono a ondate → 500 intermittenti
+  che appaiono e scompaiono nei minuti dopo il deploy)
+- `SUPABASE_JWT_SECRET` — secret HS256 del progetto cloud
+- `SUPABASE_JWKS_URL` — `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`
+  (file `.json`, non `.js`: un URL sbagliato fa rispondere 401/500 su ogni
+  token ES256 reale)
+- `ALLOWED_ORIGIN` — CSV delle origini **senza slash finale**
+  (es. `https://fit-track-delta-green.vercel.app`): il confronto con
+  l'header `Origin` del browser è esatto
+- `NODE_VERSION` — versione Node usata in build
+
+### Frontend di produzione
+
+`.env.production` (versionato — solo valori pubblici `EXPO_PUBLIC_*`) viene
+caricato con `NODE_ENV=production` (`npx expo export`, build Vercel):
+
+- `EXPO_PUBLIC_API_URL` → `https://fittrack-1-goh7.onrender.com/api`
+- `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` → progetto cloud
+
+Attenzione: le `EXPO_PUBLIC_*` definite nella **dashboard Vercel** vincono
+sul file (`process.env` ha priorità): un valore vuoto lì produce un bundle
+con `API_BASE=""` e tutte le chiamate finiscono nei rewrite di `vercel.json`
+(HTML al posto dei dati). Se il PWA non raggiunge il backend, controllare
+`Settings → Environment Variables` e verificare nel bundle che la costante
+`API_BASE` contenga `onrender.com`.
+
+### Gate di produzione
+
+Stesse suite ambientate sul cloud. Lo script E2E registra utenti veri, quindi
+richiede "Confirm email" **OFF** su Supabase Auth (in produzione re-abilitarla
+e usare un dominio con conferma); `smoke-api.py` fa seed psql tramite
+`SMOKE_DB_URL` (pooler con `?sslmode=require`):
+
+```bash
+RENDER=https://fittrack-1-goh7.onrender.com
+
+API_BASE=$RENDER SMOKE_DB_URL="<pooler?sslmode=require>" \
+SUPABASE_JWT_SECRET="<secret cloud>" \
+EXPO_PUBLIC_SUPABASE_URL=https://akmqoezpeeichwiukuwi.supabase.co \
+EXPO_PUBLIC_SUPABASE_ANON_KEY="<anon key cloud>" \
+python3 scripts/smoke-api.py          # 221/221
+
+API_BASE=$RENDER CORS_ORIGIN=https://fit-track-delta-green.vercel.app \
+EXPO_PUBLIC_SUPABASE_URL=https://akmqoezpeeichwiukuwi.supabase.co \
+EXPO_PUBLIC_SUPABASE_ANON_KEY="<anon key cloud>" \
+python3 scripts/e2e-client-flow.py    # 15/15
+```
+
+`CORS_ORIGIN` (default `http://localhost:8081`) seleziona l'origine del
+preflight: in locale si usa il dev server Expo, sul cloud il dominio reale
+del PWA. Ultimo gate superato su cloud: **221/221 + 15/15**.
+
 ## Approfondimenti
 
 - [Documentazione Expo](https://docs.expo.dev)
