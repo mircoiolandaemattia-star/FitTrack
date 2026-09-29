@@ -49,10 +49,13 @@ const ICON_STROKE = 2.2;
 type TabIconProps = { focused: boolean; color: ColorValue; size: number };
 
 /** Render prop `tabBarIcon` a identità stabile (definita a livello di modulo). */
-const renderTabIcon =
-  (Icon: LucideIcon) =>
-  ({ color, size }: TabIconProps) =>
-    <Icon size={size} color={color as string} strokeWidth={ICON_STROKE} />;
+const renderTabIcon = (Icon: LucideIcon) => {
+  /** Componente con nome: `react/display-name` lo riconosce nei devtools. */
+  function TabIcon({ color, size }: TabIconProps) {
+    return <Icon size={size} color={color as string} strokeWidth={ICON_STROKE} />;
+  }
+  return TabIcon;
+};
 
 /**
  * Barra JS classica del web (Android + Web), tutta via opzioni supportate

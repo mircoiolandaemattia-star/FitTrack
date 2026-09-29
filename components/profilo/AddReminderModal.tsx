@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { X } from "lucide-react-native";
 import type { DayOfWeek } from "@/types";
@@ -26,15 +26,17 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
   });
   const [message, setMessage] = useState("Vai in palestra");
 
-  useEffect(() => {
-    if (!visible) return;
+  // Reset dei campi alla chiusura: la riapertura parte sempre pulita (un
+  // effect che fa setState all'apertura è vietata dal lint).
+  function handleClose() {
     setType("palestra");
     setDays(["monday"]);
     const d = new Date();
     d.setHours(16, 30, 0, 0);
     setTimeDate(d);
     setMessage("Vai in palestra");
-  }, [visible]);
+    onClose();
+  }
 
   function toggleDay(d: DayOfWeek) {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -44,16 +46,16 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
     if (days.length === 0) return;
     if (!message.trim()) return;
     onSave({ type, daysOfWeek: days, time: formatTime(timeDate), message: message.trim(), isActive: true });
-    onClose();
+    handleClose();
   }
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
       <View className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
             <Text className="flex-1 font-inter-bold text-lg text-foreground">Aggiungi promemoria</Text>
-            <Pressable onPress={onClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
+            <Pressable onPress={handleClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
               <X size={20} color="#94A3B8" strokeWidth={2.2} />
             </Pressable>
           </View>

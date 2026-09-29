@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Barcode, Camera, FileText, PenLine, Sparkles, X } from "lucide-react-native";
 import type { DietFoodDraft } from "@/types";
@@ -43,7 +43,7 @@ function StubPanel({ title, description }: { title: string; description: string 
         <Text className="font-inter-semibold text-sm text-foreground">{title}</Text>
       </View>
       <Text className="font-sans text-sm leading-5 text-muted">{description}</Text>
-      <Text className="font-sans text-xs text-muted">Per ora usa l'inserimento manuale per registrare i tuoi alimenti.</Text>
+      <Text className="font-sans text-xs text-muted">Per ora usa l’inserimento manuale per registrare i tuoi alimenti.</Text>
     </View>
   );
 }
@@ -56,20 +56,22 @@ function StubPanel({ title, description }: { title: string; description: string 
 export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModalProps) {
   const [mode, setMode] = useState<AddMode>("menu");
 
-  useEffect(() => {
-    if (!visible) return;
+  // Reset della modalità alla chiusura: la riapertura parte sempre dal menu
+  // (un'effect che fa setState all'apertura è vietata dal lint).
+  function handleClose() {
     setMode("menu");
-  }, [visible]);
+    onClose();
+  }
 
   function handleAdd(draft: DietFoodDraft) {
     onAdd(draft);
-    onClose();
+    handleClose();
   }
 
   const title = mealType ? `${MODE_TITLES[mode]} — ${mealType}` : MODE_TITLES[mode];
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
       <View className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
@@ -81,7 +83,7 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
             <Text className="flex-1 font-inter-bold text-base text-foreground" numberOfLines={1}>
               {title}
             </Text>
-            <Pressable onPress={onClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
+            <Pressable onPress={handleClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
               <X size={20} color="#94A3B8" strokeWidth={2.2} />
             </Pressable>
           </View>

@@ -63,16 +63,19 @@ export function ManualFoodForm({ onAdd }: ManualFoodFormProps) {
     setFats("");
   }
 
-  // Ricalcola da CommonFood quando cambia grams
-  useEffect(() => {
+  // Ricalcola i valori da CommonFood quando cambia la quantità: l'aggiornamento
+  // avviene nell'evento di digitazione, perché un'effect con setState sincrono
+  // è vietata dal lint.
+  function handleGramsChange(text: string) {
+    setGrams(text);
     if (!selectedFood) return;
-    const factor = gramsNum / 100;
-    if (factor <= 0) return;
+    const factor = parseFloat(text.replace(",", ".")) / 100;
+    if (!Number.isFinite(factor) || factor <= 0) return;
     setCalories(String(Math.round(selectedFood.caloriesPer100g * factor)));
     setProtein(String(Math.round(selectedFood.proteinGPer100g * factor * 10) / 10));
     setCarbs(String(Math.round(selectedFood.carbsGPer100g * factor * 10) / 10));
     setFats(String(Math.round(selectedFood.fatsGPer100g * factor * 10) / 10));
-  }, [grams, gramsNum, selectedFood]);
+  }
 
   const canConfirm = name.trim().length > 1 && gramsNum > 0;
 
@@ -176,7 +179,7 @@ export function ManualFoodForm({ onAdd }: ManualFoodFormProps) {
 
         <View>
           <Text className="font-sans text-xs text-muted">Quantità (g) *</Text>
-          <TextInput value={grams} onChangeText={setGrams} keyboardType="numeric" placeholder="100" placeholderTextColor="#64748B" className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 text-center font-inter-semibold text-sm text-foreground" />
+          <TextInput value={grams} onChangeText={handleGramsChange} keyboardType="numeric" placeholder="100" placeholderTextColor="#64748B" className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 text-center font-inter-semibold text-sm text-foreground" />
         </View>
 
         {!selectedFood ? (

@@ -31,7 +31,7 @@ export function DisclaimerStep({ accepted, onToggle }: Props) {
         >
           {accepted ? <Check size={14} color="#0F172A" strokeWidth={3} /> : null}
         </View>
-        <Text className="flex-1 font-inter-semibold text-sm leading-5 text-foreground">Ho letto e accetto le condizioni d'uso</Text>
+        <Text className="flex-1 font-inter-semibold text-sm leading-5 text-foreground">Ho letto e accetto le condizioni d’uso</Text>
       </Pressable>
     </View>
   );

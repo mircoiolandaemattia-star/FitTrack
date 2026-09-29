@@ -14,7 +14,6 @@ type Props = {
 };
 
 export function GoalSelector({ value, weightKg, heightCm, age, gender, activityLevel, readOnly = false, onChange }: Props) {
-  const selected = GOAL_OPTIONS.find((o) => o.key === value);
   const tdee = calculateTDEE(weightKg ?? 0, heightCm ?? 0, age ?? 0, gender ?? null, activityLevel ?? null, value as Goal);
 
   return (

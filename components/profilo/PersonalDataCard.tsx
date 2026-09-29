@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { Card } from "@/components/home/Card";
 
@@ -41,9 +41,14 @@ export function PersonalDataCard({ data, readOnly = false, onSave }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PersonalData>(data);
 
-  useEffect(() => {
+  // Sincronizza il draft quando arrivano dati nuovi dal server: aggiustamento
+  // durante il render (pattern documentato da React) al posto dell'effect con
+  // setState, che il lint vieta perché scatena render a cascata.
+  const [prevData, setPrevData] = useState(data);
+  if (data !== prevData) {
+    setPrevData(data);
     setDraft(data);
-  }, [data]);
+  }
 
   function handleToggle() {
     if (editing) {

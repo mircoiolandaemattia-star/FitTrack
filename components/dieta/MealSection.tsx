@@ -1,4 +1,4 @@
-import { Platform, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, UtensilsCrossed } from "lucide-react-native";
 import type { Meal } from "@/types";
 import { Card } from "@/components/home/Card";

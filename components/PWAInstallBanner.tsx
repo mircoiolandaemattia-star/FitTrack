@@ -14,7 +14,16 @@ function isIOS(): boolean {
 export function PWAInstallBanner() {
   const { width } = useWindowDimensions();
   const isStandalone = useIsStandalone();
-  const [dismissed, setDismissed] = useState(false);
+  // Chiusura persistente: letta da localStorage in fase di inizializzazione
+  // (non in un'effect: setState sincrono dentro un'effect è vietato dal lint).
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage?.getItem(DISMISS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [deferredPrompt, setDeferredPrompt] = useState<unknown>(null);
   const [canInstall, setCanInstall] = useState(false);
 
@@ -26,9 +35,6 @@ export function PWAInstallBanner() {
     // function" e crash silenzioso all'avvio (niente red screen in Release).
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     if (typeof window.addEventListener !== "function") return;
-
-    const stored = window.localStorage?.getItem(DISMISS_KEY);
-    if (stored === "1") setDismissed(true);
 
     const handler = (e: Event) => {
       e.preventDefault();
@@ -70,7 +76,7 @@ export function PWAInstallBanner() {
         </View>
         <View className="flex-1 gap-1">
           <Text className="font-inter-bold text-base text-foreground">Installa FitTrack</Text>
-          <Text className="font-sans text-sm leading-5 text-muted">Aggiungi l'app alla schermata Home per usarla come nativa (niente più sola lettura).</Text>
+          <Text className="font-sans text-sm leading-5 text-muted">Aggiungi l’app alla schermata Home per usarla come nativa (niente più sola lettura).</Text>
         </View>
         <Pressable onPress={handleDismiss} hitSlop={8} className="h-8 w-8 items-center justify-center rounded-full bg-surface active:opacity-60">
           <X size={14} color="#94A3B8" strokeWidth={2.5} />
@@ -120,7 +126,7 @@ export function PWAInstallBanner() {
         {/* Mostra sempre l'altra piattaforma come secondaria, compatta */}
         <View className="h-px bg-border" />
         <Text className="font-sans text-xs leading-4 text-muted">
-          {ios ? "Su Android: menu ⋮ → Installa app" : "Su iPhone: Condividi → Aggiungi a Home"} — dopo l'installazione l'app si apre a schermo intero con tutte le funzioni sbloccate.
+          {ios ? "Su Android: menu ⋮ → Installa app" : "Su iPhone: Condividi → Aggiungi a Home"} — dopo l’installazione l’app si apre a schermo intero con tutte le funzioni sbloccate.
         </Text>
       </View>
     </Card>

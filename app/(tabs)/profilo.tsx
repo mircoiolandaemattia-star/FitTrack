@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Platform,
@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LogOut, Pencil } from "lucide-react-native";
+import { LogOut } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
 import { PersonalDataCard, type PersonalData } from "@/components/profilo/PersonalDataCard";
@@ -22,11 +22,10 @@ import { AddReminderModal } from "@/components/profilo/AddReminderModal";
 import { SubscriptionCard, type SubscriptionState } from "@/components/profilo/SubscriptionCard";
 import { useAuth } from "@/lib/auth";
 import { useIsStandalone } from "@/lib/useStandalone";
-import { calculateTDEE, type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
+import { type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
 import { GOAL_TO_API, ACTIVITY_TO_API, type CreateProfileInput } from "@/lib/profileQueries";
 import { isApiError } from "@/lib/api";
-import { birthDateFromAge } from "@/lib/profileQueries";
-import { useProfile, useUpdateProfile } from "@/lib/profileQueries";
+import { birthDateFromAge , useProfile, useUpdateProfile } from "@/lib/profileQueries";
 import {
   useReminders,
   useCreateReminder,
@@ -59,7 +58,9 @@ export default function ProfiloScreen() {
   const isReadOnly = Platform.OS === "web" && !isStandalone;
 
   const [showAddReminder, setShowAddReminder] = useState(false);
-  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  // Stato legacy: il setter è ancora usato dal pulsante, il valore non è
+  // mai letto (nessuna UI lo usa) → hole nell'array destructuring.
+  const [, setEditProfileOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Profilo server (target TDEE, subscription, ecc.)

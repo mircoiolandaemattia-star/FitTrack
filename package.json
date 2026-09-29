@@ -52,6 +52,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.3",
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^57.0.2",
     "prisma": "^6.19.3",
     "typescript": "~6.0.3"
   },

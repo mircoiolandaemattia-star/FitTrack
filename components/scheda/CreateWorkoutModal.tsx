@@ -237,7 +237,7 @@ export function CreateWorkoutModal({
   // Stato del flusso manuale.
   const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>("monday");
   const [trainingKey, setTrainingKey] = useState<TrainingTypeKey>("push");
-  const [exercises, setExercises] = useState<FormExercise[]>([]);
+  const [exercises, setExercises] = useState<FormExercise[]>(() => getDefaultExercises("push").map(toFormExercise));
 
   // Stato del flusso importazione file.
   const [fileName, setFileName] = useState<string | null>(null);
@@ -263,23 +263,6 @@ export function CreateWorkoutModal({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
-
-  // Reset di tutti gli stati alla riapertura.
-  useEffect(() => {
-    if (!visible) return;
-    setMode("menu");
-    setError(null);
-    setDayOfWeek("monday");
-    setTrainingKey("push");
-    setExercises(getDefaultExercises("push").map(toFormExercise));
-    setFileName(null);
-    setAiStep(0);
-    setAiGoal("ipertrofia");
-    setAiLevel("intermedio");
-    setAiDays(4);
-    setAiEquipment(["palestra"]);
-    setAiDraft(null);
-  }, [visible]);
 
   const libraryGroups = useMemo(() => {
     const map = new Map<string, ExerciseTemplate[]>();
@@ -348,7 +331,7 @@ export function CreateWorkoutModal({
         exercises: parsedExercises,
       });
       onDone(dayId);
-      onClose();
+      handleClose();
     } catch (err) {
       setError(
         isApiError(err) ? err.message : "Salvataggio non riuscito: controlla la connessione.",
@@ -414,8 +397,26 @@ export function CreateWorkoutModal({
     setMode("menu");
   }
 
+  // Reset di tutti gli stati alla chiusura: la riapertura parte sempre pulita
+  // (un'effect che fa setState all'apertura è vietata dal lint).
+  function resetFormState() {
+    setMode("menu");
+    setError(null);
+    setDayOfWeek("monday");
+    setTrainingKey("push");
+    setExercises(getDefaultExercises("push").map(toFormExercise));
+    setFileName(null);
+    setAiStep(0);
+    setAiGoal("ipertrofia");
+    setAiLevel("intermedio");
+    setAiDays(4);
+    setAiEquipment(["palestra"]);
+    setAiDraft(null);
+  }
+
   function handleClose() {
     if (timerRef.current) clearTimeout(timerRef.current);
+    resetFormState();
     onClose();
   }
 
@@ -637,7 +638,7 @@ export function CreateWorkoutModal({
                   ) : (
                     <View className="rounded-xl border border-accent/40 bg-accent/10 p-4">
                       <Text className="font-sans text-sm leading-5 text-muted">
-                        Giorno di riposo: nessun esercizio. Il badge "Riposo" comparirà sulla
+                        Giorno di riposo: nessun esercizio. Il badge “Riposo” comparirà sulla
                         card del {getDayShortLabel(dayOfWeek).toLowerCase()}.
                       </Text>
                     </View>
@@ -683,7 +684,7 @@ export function CreateWorkoutModal({
                   ) : null}
                   <Text className="text-center font-sans text-sm leading-5 text-muted">
                     Estrazione di giorni, esercizi e pesi in corso (mock: il collegamento
-                    all'AI arriverà in una prossima versione).
+                    all’AI arriverà in una prossima versione).
                   </Text>
                 </View>
               ) : null}
@@ -709,7 +710,7 @@ export function CreateWorkoutModal({
                       </Text>
                     </View>
                     <Text className="text-center font-sans text-xs text-muted">
-                      Anteprima simulata: la conversione reale verrà collegata all'AI.
+                      Anteprima simulata: la conversione reale verrà collegata all’AI.
                     </Text>
                   </View>
                   <PrimaryButton label="Aggiungi alla scheda" onPress={handleApplyImported} />
@@ -827,7 +828,7 @@ export function CreateWorkoutModal({
 
                   {aiEquipment.length === 0 && aiStep === 3 ? (
                     <Text className="text-center font-sans text-xs text-destructive">
-                      Seleziona almeno un'opzione di attrezzatura.
+                      Seleziona almeno un’opzione di attrezzatura.
                     </Text>
                   ) : null}
                 </>

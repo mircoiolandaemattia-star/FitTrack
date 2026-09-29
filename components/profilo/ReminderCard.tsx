@@ -2,7 +2,7 @@ import { Alert, Pressable, Switch, Text, View } from "react-native";
 import { Clock, Dumbbell, Trash2, UtensilsCrossed } from "lucide-react-native";
 import { Card } from "@/components/home/Card";
 import { formatReminder } from "@/lib/reminderQueries";
-import type { DayOfWeek, Reminder } from "@/types";
+import type { DayOfWeek } from "@/types";
 
 type ReminderItem = {
   id: string;

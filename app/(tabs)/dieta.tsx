@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { ChevronLeft, ChevronRight, RefreshCw, Sparkles, UtensilsCrossed, X } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, RefreshCw, Sparkles, UtensilsCrossed } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
 import { MacroProgressBar } from "@/components/dieta/MacroProgressBar";
@@ -283,7 +283,7 @@ export default function DietaScreen() {
     <Card className="gap-1 border border-border p-4">
       <Text className="font-inter-semibold text-sm text-foreground">Generazione AI non ancora disponibile</Text>
       <Text className="font-sans text-sm leading-5 text-muted">
-        È ancora uno stub: il generatore verrà collegato al backend insieme all'integrazione Gemini. Nel frattempo puoi comporre la giornata con l'inserimento manuale.
+        È ancora uno stub: il generatore verrà collegato al backend insieme all’integrazione Gemini. Nel frattempo puoi comporre la giornata con l’inserimento manuale.
       </Text>
     </Card>
   ) : null;

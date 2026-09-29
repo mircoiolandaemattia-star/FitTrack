@@ -126,7 +126,7 @@ function loadJwks(force: boolean): Promise<JwksCache> {
       const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const body = (await response.json()) as {
-        keys?: Array<JsonWebKeyInput["key"] & { kid?: string }>;
+        keys?: (JsonWebKeyInput["key"] & { kid?: string })[];
       };
       const keys = new Map<string, string>();
       for (const jwk of body.keys ?? []) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { X } from "lucide-react-native";
 
@@ -16,17 +16,19 @@ export function AddMeasurementModal({ visible, onClose, onSave }: Props) {
   const [arms, setArms] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!visible) return;
+  const todayLabel = new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "long", year: "numeric" }).format(new Date());
+
+  // Reset dei campi alla chiusura: la riapertura parte sempre pulita (un
+  // effect che fa setState all'apertura è vietata dal lint).
+  function handleClose() {
     setWeight("");
     setWaist("");
     setHips("");
     setChest("");
     setArms("");
     setError(null);
-  }, [visible]);
-
-  const todayLabel = new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "long", year: "numeric" }).format(new Date());
+    onClose();
+  }
 
   function handleSave() {
     const w = parseFloat(weight.replace(",", "."));
@@ -45,16 +47,16 @@ export function AddMeasurementModal({ visible, onClose, onSave }: Props) {
       chestCm: parseOpt(chest),
       armsCm: parseOpt(arms),
     });
-    onClose();
+    handleClose();
   }
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
       <View className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
             <Text className="flex-1 font-inter-bold text-lg text-foreground">Aggiungi misurazione</Text>
-            <Pressable onPress={onClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
+            <Pressable onPress={handleClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
               <X size={20} color="#94A3B8" strokeWidth={2.2} />
             </Pressable>
           </View>

@@ -67,7 +67,12 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
   const [logs, setLogs] = useState<ExerciseLogs>(() => initLogs(day));
   const [restRemaining, setRestRemaining] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
-  const startedAtRef = useRef(Date.now());
+  // `Date.now` è impuro: il timestamp d'inizio sessione viene preso in un
+  //'effect (chiamarlo durante il render è vietato dal lint).
+  const startedAtRef = useRef(0);
+  useEffect(() => {
+    startedAtRef.current = Date.now();
+  }, []);
 
   const createSession = useCreateWorkoutSession();
 
@@ -354,7 +359,7 @@ export function ActiveWorkoutSession({ day }: ActiveWorkoutSessionProps) {
 
         {!allSetsDone ? (
           <Text className="text-center font-sans text-xs text-muted">
-            Completa tutte le serie dell'esercizio per continuare.
+            Completa tutte le serie dell’esercizio per continuare.
           </Text>
         ) : null}
 
