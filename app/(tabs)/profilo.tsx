@@ -1,6 +1,15 @@
-import { useMemo, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { LogOut, Pencil } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
@@ -14,96 +23,176 @@ import { SubscriptionCard, type SubscriptionState } from "@/components/profilo/S
 import { useAuth } from "@/lib/auth";
 import { useIsStandalone } from "@/lib/useStandalone";
 import { calculateTDEE, type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
-import { addReminder, deleteReminder, listReminders, toggleReminder } from "@/lib/reminders";
+import { GOAL_TO_API, ACTIVITY_TO_API, type CreateProfileInput } from "@/lib/profileQueries";
+import { isApiError } from "@/lib/api";
+import { birthDateFromAge } from "@/lib/profileQueries";
+import { useProfile, useUpdateProfile } from "@/lib/profileQueries";
+import {
+  useReminders,
+  useCreateReminder,
+  useUpdateReminder,
+  useDeleteReminder,
+  toReminder,
+  type Reminder,
+} from "@/lib/reminderQueries";
 
 const WIDE_BP = 768;
 
+/** Messaggio d'errore leggibile: quello dell'API o una rete assente. */
+function errorMessage(error: unknown): string {
+  return isApiError(error) ? error.message : "Connessione al server non riuscita.";
+}
+
+/**
+ * Profilo: dati personali, obiettivo, attività da GET/PUT /api/users/me
+ * (con conferma prima di salvare perché ricalcola il TDEE), promemoria
+ * CRUD da /api/reminders, stato abbonamento da users, logout che pulisce
+ * anche la cache React Query. Mock rimossi per le parti collegate.
+ */
 export default function ProfiloScreen() {
   const { width } = useWindowDimensions();
   const isStandalone = useIsStandalone();
-  const { user, updateUser, logout } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isWide = width >= WIDE_BP;
   const isReadOnly = Platform.OS === "web" && !isStandalone;
 
-  const [reminderVersion, setReminderVersion] = useState(0);
   const [showAddReminder, setShowAddReminder] = useState(false);
-  const [editProfileOpen, setEditProfileOpen] = useState(false); // header button toggles personal edit
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const reminders = useMemo(() => listReminders(), [reminderVersion]);
+  // Profilo server (target TDEE, subscription, ecc.)
+  const profileQuery = useProfile();
+  const profile = profileQuery.data;
+  const updateProfile = useUpdateProfile();
 
-  if (!user) {
-    return (
-      <Screen className="items-center justify-center">
-        <Text className="font-sans text-sm text-muted">Utente non trovato</Text>
-      </Screen>
-    );
-  }
+  // Promemoria reali
+  const remindersQuery = useReminders();
+  const reminders: Reminder[] = (remindersQuery.data ?? []).map(toReminder);
+  const createReminder = useCreateReminder();
+  const updateReminder = useUpdateReminder();
+  const deleteReminder = useDeleteReminder();
 
-  // dati personali derivati da user
-  const u = user!;
-  const initial = (u.name?.trim()?.[0] ?? u.email?.[0] ?? "?").toUpperCase();
-  const personalData: PersonalData = {
-    name: u.name ?? "",
-    age: u.age != null ? String(u.age) : "",
-    weightKg: u.weightKg != null ? String(u.weightKg) : "",
-    heightCm: u.heightCm != null ? String(u.heightCm) : "",
-    gender: u.gender ?? "",
-  };
+  // Dati personali derivati dal profilo server + auth locale (nome/email)
+  const initial = useMemo(
+    () => (user?.name?.trim()?.[0] ?? user?.email?.[0] ?? "?").toUpperCase(),
+    [user],
+  );
 
-  function handlePersonalSave(d: PersonalData) {
-    const patch: any = {
-      name: d.name.trim() || u.name,
-      age: d.age ? parseInt(d.age, 10) || null : null,
-      weightKg: d.weightKg ? parseFloat(d.weightKg.replace(",", ".")) || null : null,
-      heightCm: d.heightCm ? parseInt(d.heightCm, 10) || null : null,
-      gender: d.gender.trim() || null,
+  // Stato abbonamento dal server
+  const subState: SubscriptionState = useMemo(() => {
+    const status = profile?.subscription_status ?? "free";
+    if (status === "premium") return "premium";
+    if (status === "trial") return "trial";
+    return "free";
+  }, [profile?.subscription_status]);
+
+  // Goal/activity per i selettori (profilo server)
+  const serverGoal = profile?.goal ?? null;
+  const serverActivity = profile?.activity_level ?? null;
+
+  function handlePersonalSave(data: PersonalData) {
+    const patch: Partial<CreateProfileInput> = {
+      name: data.name.trim() || user?.name,
     };
-    // ricalcola fabbisogno se possibile
-    const tdee = calculateTDEE(patch.weightKg ?? u.weightKg, patch.heightCm ?? u.heightCm, patch.age ?? u.age, patch.gender ?? u.gender, (u.activityLevel as ActivityLevel) ?? null, (u.goal as Goal) ?? null);
-    if (tdee) patch.dailyCalories = tdee;
-    updateUser(patch);
+    if (data.age) patch.birth_date = birthDateFromAge(parseInt(data.age, 10));
+    if (data.weightKg) patch.weight_kg = parseFloat(data.weightKg.replace(",", "."));
+    if (data.heightCm) patch.height_cm = parseInt(data.heightCm, 10);
+    if (data.gender && ["male", "female", "other"].includes(data.gender.trim())) {
+      patch.gender = data.gender.trim() as "male" | "female" | "other";
+    }
+
+    setSaveError(null);
+    updateProfile.mutate(patch, {
+      onError: (err) => setSaveError(errorMessage(err)),
+    });
+    setEditProfileOpen(false);
   }
 
   function handleGoalChange(g: Goal) {
-    const tdee = calculateTDEE(u.weightKg ?? 0, u.heightCm ?? 0, u.age ?? 0, u.gender, u.activityLevel as ActivityLevel, g);
-    updateUser({ goal: g, dailyCalories: tdee ?? u.dailyCalories });
+    // Conferma esplicita: ricalcola il TDEE lato server
+    Alert.alert(
+      "Cambiare obiettivo?",
+      "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
+      [
+        { text: "Annulla", style: "cancel" },
+        {
+          text: "Conferma",
+          onPress: () => {
+            setSaveError(null);
+            updateProfile.mutate({ goal: GOAL_TO_API[g] }, { onError: (err) => setSaveError(errorMessage(err)) });
+          },
+        },
+      ],
+    );
   }
 
   function handleActivityChange(a: ActivityLevel) {
-    const tdee = calculateTDEE(u.weightKg ?? 0, u.heightCm ?? 0, u.age ?? 0, u.gender, a, u.goal as Goal);
-    updateUser({ activityLevel: a, dailyCalories: tdee ?? u.dailyCalories });
+    Alert.alert(
+      "Cambiare livello attività?",
+      "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
+      [
+        { text: "Annulla", style: "cancel" },
+        {
+          text: "Conferma",
+          onPress: () => {
+            setSaveError(null);
+            updateProfile.mutate({ activity_level: ACTIVITY_TO_API[a] }, { onError: (err) => setSaveError(errorMessage(err)) });
+          },
+        },
+      ],
+    );
   }
-
-  // subscription state
-  let subState: SubscriptionState = "free";
-  if (u.isPremium && !u.isTrial) subState = "premium";
-  else if (u.isTrial) subState = "trial";
 
   function handleStartTrial() {
-    const ends = new Date();
-    ends.setDate(ends.getDate() + 30);
-    updateUser({ isTrial: true, isPremium: false, trialEndsAt: ends.toISOString() });
-  }
-  function handleConfirm() {
-    const renewal = new Date();
-    renewal.setFullYear(renewal.getFullYear() + 1);
-    updateUser({ isTrial: false, isPremium: true, trialEndsAt: null });
-  }
-  function handleManage() {
-    Alert.alert("Abbonamento", "Gestione abbonamento (mock): qui si aprirebbe il portale di pagamento.");
+    // La prova è gestita lato server (se c'è logica) oppure resta stub
+    // Qui non c'è endpoint dedicato: usiamo updateUser locale per UI
+    // ma il backend non ha trial — lo Stato lo gestisce il server via subscription_status
+    Alert.alert(
+      "Prova gratuita",
+      "La gestione delle prove è delegata al backend (non ancora implementata).",
+      [{ text: "OK" }],
+    );
   }
 
-  function handleLogout() {
-    Alert.alert("Esci", "Vuoi davvero uscire dall'account?", [
+  function handleConfirm() {
+    Alert.alert(
+      "Conferma abbonamento",
+      "Il pagamento reale non è ancora implementato (stub).",
+      [{ text: "OK" }],
+    );
+  }
+
+  function handleManage() {
+    Alert.alert("Abbonamento", "Portale di pagamento non ancora collegato (stub).", [{ text: "OK" }]);
+  }
+
+  async function handleLogout() {
+    const confirmed = await new Promise<boolean>((resolve) =>
+      Alert.alert("Esci", "Vuoi davvero uscire dall'account?", [
+        { text: "Annulla", style: "cancel", onPress: () => resolve(false) },
+        { text: "Esci", style: "destructive", onPress: () => resolve(true) },
+      ]),
+    );
+    if (!confirmed) return;
+    await logout();
+    // Pulisci TUTTA la cache React Query dell'utente uscente
+    queryClient.clear();
+    router.replace("/(auth)/login");
+  }
+
+  function handleReminderToggle(id: string, isActive: boolean) {
+    updateReminder.mutate({ id, patch: { isActive } }, { onError: (err) => setSaveError(errorMessage(err)) });
+  }
+
+  function handleReminderDelete(id: string) {
+    Alert.alert("Eliminare promemoria?", "Confermi l'eliminazione?", [
       { text: "Annulla", style: "cancel" },
       {
-        text: "Esci",
+        text: "Elimina",
         style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/(auth)/login");
-        },
+        onPress: () => deleteReminder.mutate(id, { onError: (err) => setSaveError(errorMessage(err)) }),
       },
     ]);
   }
@@ -115,10 +204,10 @@ export default function ProfiloScreen() {
       </View>
       <View className="flex-1">
         <Text className="font-inter-bold text-lg text-foreground" numberOfLines={1}>
-          {u.name}
+          {user?.name}
         </Text>
         <Text className="font-sans text-sm text-muted" numberOfLines={1}>
-          {u.email}
+          {user?.email}
         </Text>
       </View>
       {!isReadOnly ? (
@@ -129,26 +218,37 @@ export default function ProfiloScreen() {
     </View>
   );
 
+  // Personali: se c'è profilo server, usa i suoi dati per età/peso/altezza/sesso
+  const personalData: PersonalData = useMemo(() => ({
+    name: user?.name ?? "",
+    age: profile?.birth_date
+      ? String(new Date().getFullYear() - new Date(profile.birth_date).getFullYear())
+      : "",
+    weightKg: profile?.weight_kg != null ? String(profile.weight_kg) : "",
+    heightCm: profile?.height_cm != null ? String(profile.height_cm) : "",
+    gender: profile?.gender ?? "",
+  }), [profile, user]);
+
   const leftColumn = (
     <View className="gap-4">
       <PersonalDataCard data={personalData} readOnly={isReadOnly} onSave={handlePersonalSave} />
       <GoalSelector
-        value={u.goal}
-        weightKg={u.weightKg}
-        heightCm={u.heightCm}
-        age={u.age}
-        gender={u.gender}
-        activityLevel={u.activityLevel as ActivityLevel}
+        value={serverGoal}
+        weightKg={profile?.weight_kg ?? null}
+        heightCm={profile?.height_cm ?? null}
+        age={profile?.birth_date ? new Date().getFullYear() - new Date(profile.birth_date).getFullYear() : null}
+        gender={profile?.gender ?? null}
+        activityLevel={serverActivity}
         readOnly={isReadOnly}
         onChange={handleGoalChange}
       />
       <ActivityLevelSelector
-        value={u.activityLevel as ActivityLevel}
-        goal={u.goal as Goal}
-        weightKg={u.weightKg}
-        heightCm={u.heightCm}
-        age={u.age}
-        gender={u.gender}
+        value={serverActivity}
+        goal={serverGoal}
+        weightKg={profile?.weight_kg ?? null}
+        heightCm={profile?.height_cm ?? null}
+        age={profile?.birth_date ? new Date().getFullYear() - new Date(profile.birth_date).getFullYear() : null}
+        gender={profile?.gender ?? null}
         readOnly={isReadOnly}
         onChange={handleActivityChange}
       />
@@ -159,22 +259,16 @@ export default function ProfiloScreen() {
     <View className="gap-4">
       <SettingsCard readOnly={isReadOnly} />
       <ReminderCard
-        reminders={reminders as any}
+        reminders={reminders}
         readOnly={isReadOnly}
-        onToggle={(id, v) => {
-          toggleReminder(id, v);
-          setReminderVersion((x) => x + 1);
-        }}
-        onDelete={(id) => {
-          deleteReminder(id);
-          setReminderVersion((x) => x + 1);
-        }}
+        onToggle={handleReminderToggle}
+        onDelete={handleReminderDelete}
         onAdd={() => setShowAddReminder(true)}
       />
       <SubscriptionCard
         state={subState}
-        trialEndsAt={u.trialEndsAt}
-        nextRenewal={subState === "premium" ? new Date(Date.now() + 30 * 86400000).toISOString() : null}
+        trialEndsAt={profile?.subscription_expires_at ?? null}
+        nextRenewal={subState === "premium" ? profile?.subscription_expires_at ?? null : null}
         readOnly={isReadOnly}
         onStartTrial={handleStartTrial}
         onConfirm={handleConfirm}
@@ -188,12 +282,24 @@ export default function ProfiloScreen() {
     </View>
   );
 
+  const saveErrorBanner = saveError ? (
+    <Card className="gap-1 p-4">
+      <Text className="font-inter-semibold text-sm text-destructive">Operazione non riuscita</Text>
+      <Text className="font-sans text-sm leading-5 text-muted">{saveError}</Text>
+    </Card>
+  ) : null;
+
   return (
     <Screen>
-      <ScrollView className="flex-1" contentContainerClassName={`w-full gap-6 px-4 py-6 ${isWide ? "mx-auto max-w-5xl px-6" : ""}`}>
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName={`w-full gap-6 px-4 py-6 ${isWide ? "mx-auto max-w-5xl px-6" : ""}`}
+      >
         <Text className="font-inter-bold text-3xl text-foreground">Profilo</Text>
 
         <Card className="gap-2">{header}</Card>
+
+        {saveErrorBanner}
 
         {isWide ? (
           <View className="w-full flex-row items-start gap-6">
@@ -212,8 +318,21 @@ export default function ProfiloScreen() {
         visible={showAddReminder}
         onClose={() => setShowAddReminder(false)}
         onSave={(data) => {
-          addReminder(data as any);
-          setReminderVersion((x) => x + 1);
+          // type mapping: "palestra"→"workout", "pasto"→"meal"
+          const typeMap: Record<string, "workout" | "meal" | "measurement" | "custom"> = {
+            palestra: "workout",
+            pasto: "meal",
+          };
+          createReminder.mutate(
+            {
+              type: typeMap[data.type] ?? "custom",
+              daysOfWeek: data.daysOfWeek,
+              time: data.time,
+              message: data.message,
+              isActive: data.isActive,
+            },
+            { onError: (err) => setSaveError(errorMessage(err)) },
+          );
         }}
       />
     </Screen>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { X } from "lucide-react-native";
 import type { DayOfWeek } from "@/types";
-import { WEEKDAYS, dayLabel } from "@/lib/reminders";
+import { WEEKDAYS, dayLabel } from "@/lib/reminderQueries";
 
 type Props = {
   visible: boolean;

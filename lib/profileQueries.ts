@@ -20,6 +20,8 @@ export interface ApiProfile {
   protein_target_g: number | null;
   carbs_target_g: number | null;
   fat_target_g: number | null;
+  subscription_status: string;
+  subscription_expires_at: string | null;
   created_at: string;
 }
 
@@ -90,6 +92,17 @@ export function useCreateProfile() {
     onSuccess: (profile) => {
       // Annulla il 404 appena letto e ri-verifica col server.
       queryClient.setQueryData(profileKeys.me, profile);
+      void queryClient.invalidateQueries({ queryKey: profileKeys.me });
+    },
+  });
+}
+
+/** PUT /api/users/me: aggiorna obiettivo/attività/dati personali (ricalcola TDEE lato server). */
+export function useUpdateProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<CreateProfileInput>) => api.put<ApiProfile>("/users/me", patch),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: profileKeys.me });
     },
   });
