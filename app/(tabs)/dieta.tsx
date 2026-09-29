@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Platform,
   Pressable,
@@ -9,49 +10,45 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  UtensilsCrossed,
-  X,
-} from "lucide-react-native";
+import { ChevronLeft, ChevronRight, RefreshCw, Sparkles, UtensilsCrossed, X } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
 import { MacroProgressBar } from "@/components/dieta/MacroProgressBar";
 import { MealSection } from "@/components/dieta/MealSection";
 import { AddFoodModal } from "@/components/dieta/AddFoodModal";
-import { GenerateDietFlow } from "@/components/dieta/GenerateDietFlow";
-import { PremiumUpsellModal } from "@/components/dieta/PremiumUpsellModal";
-import { useAuth } from "@/lib/auth";
 import { useIsStandalone } from "@/lib/useStandalone";
+import { isApiError } from "@/lib/api";
+import { useProfile } from "@/lib/profileQueries";
+import { addDays, dateToString, formatDayLabel, type MealType } from "@/lib/dietaStore";
 import {
-  addDays,
-  addFoodToMeal,
-  dateToString,
-  DIET_TARGETS,
-  formatDayLabel,
-  getDietTotals,
-  getMealsForDate,
-  MEAL_TYPES,
-  removeFoodFromMeal,
-  updateFoodInMeal,
-  type MealType,
-} from "@/lib/dietaStore";
+  useAddFoodItem,
+  useDeleteFoodItem,
+  useDiaryDay,
+  useDietPlans,
+  useUpdateFoodItem,
+} from "@/lib/dietQueries";
 import type { DietFoodDraft } from "@/types";
 
 const WIDE_BREAKPOINT = 768;
 
+/** Messaggio d'errore leggibile: quello dell'API o una rete assente. */
+function errorMessage(error: unknown): string {
+  return isApiError(error) ? error.message : "Connessione al server non riuscita.";
+}
+
+/**
+ * Dieta: diario del giorno (pasti + alimenti) e macro dal backend
+ * (meals/food_items con React Query), target dal profilo (users), piano
+ * attivo da diet-plans. Inserimento manuale reale; foto AI, barcode,
+ * upload dieta e generazione AI restano stub segnalati in UI.
+ */
 export default function DietaScreen() {
   const { width } = useWindowDimensions();
-  const { user } = useAuth();
   const isStandalone = useIsStandalone();
   const isWide = width >= WIDE_BREAKPOINT;
   const isReadOnly = Platform.OS === "web" && !isStandalone;
-  const isPremium = Boolean(user?.isPremium || user?.isTrial);
 
   const [selectedDate, setSelectedDate] = useState(() => new Date());
-  const [version, setVersion] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Colazione: true,
     Pranzo: false,
@@ -59,11 +56,12 @@ export default function DietaScreen() {
     Snack: false,
   });
   const [addMealType, setAddMealType] = useState<MealType | null>(null);
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [showGenerateUpsell, setShowGenerateUpsell] = useState(false);
+  const [aiNotice, setAiNotice] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Editing state
   const [editing, setEditing] = useState<{
+    mealId: string;
     mealType: MealType;
     foodId: string;
     name: string;
@@ -75,37 +73,66 @@ export default function DietaScreen() {
     originalFats: number;
   } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
+    mealId: string;
     mealType: MealType;
     foodId: string;
     name: string;
   } | null>(null);
 
   const dateStr = useMemo(() => dateToString(selectedDate), [selectedDate]);
-  // Force recompute when version changes
-  const meals = useMemo(() => getMealsForDate(dateStr), [dateStr, version]);
-  const totals = useMemo(() => getDietTotals(dateStr), [dateStr, version]);
   const dayLabel = useMemo(() => formatDayLabel(selectedDate), [selectedDate]);
 
-  function bump() {
-    setVersion((v) => v + 1);
+  // Dati reali: diario del giorno, piani dieta, profilo (target TDEE).
+  const diary = useDiaryDay(dateStr);
+  const plansQuery = useDietPlans();
+  const profileQuery = useProfile();
+  const plans = plansQuery.data ?? [];
+  const activePlan = plans.find((plan) => plan.is_active) ?? plans[0] ?? null;
+
+  const addFood = useAddFoodItem();
+  const updateFood = useUpdateFoodItem();
+  const deleteFood = useDeleteFoodItem();
+
+  const meals = diary.meals;
+  const totals = diary.totals;
+
+  // Target: profilo (users/me) con fallback sui target del piano attivo.
+  const profile = profileQuery.data;
+  const targetCalories = profile?.daily_calorie_target ?? activePlan?.daily_calorie_target ?? 0;
+  const targetProtein = profile?.protein_target_g ?? activePlan?.protein_g ?? 0;
+  const targetCarbs = profile?.carbs_target_g ?? activePlan?.carbs_g ?? 0;
+  const targetFats = profile?.fat_target_g ?? activePlan?.fat_g ?? 0;
+
+  const isLoading = diary.isLoading || plansQuery.isLoading || profileQuery.isLoading;
+  const isError = diary.isError || plansQuery.isError;
+  const error = diary.error ?? plansQuery.error;
+
+  function refetch() {
+    if (diary.isError) diary.refetch();
+    if (plansQuery.isError) void plansQuery.refetch();
   }
 
   function toggleMeal(type: MealType) {
     setExpanded((prev) => ({ ...prev, [type]: !prev[type] }));
   }
 
-  function handleAddFood(draft: DietFoodDraft) {
+  async function handleAddFood(draft: DietFoodDraft) {
     if (!addMealType) return;
-    addFoodToMeal(dateStr, addMealType, draft);
-    bump();
-    setAddMealType(null);
+    setSaveError(null);
+    try {
+      // Il pasto viene creato al primo inserimento (POST /meals), poi l'alimento.
+      await addFood.mutateAsync({ date: dateStr, mealType: addMealType, draft });
+    } catch (err) {
+      setSaveError(errorMessage(err));
+    }
   }
 
   function handleRequestEdit(mealType: MealType, foodId: string) {
     const meal = meals.find((m) => m.type === mealType);
     const item = meal?.foodItems.find((f) => f.id === foodId);
-    if (!item) return;
+    if (!item || !meal) return;
     setEditing({
+      mealId: meal.id,
       mealType,
       foodId,
       name: item.name,
@@ -123,35 +150,70 @@ export default function DietaScreen() {
     const newQty = parseFloat(editing.quantityG.replace(",", ".")) || 0;
     if (newQty <= 0) return;
     const factor = newQty / (editing.originalQuantity || 1);
-    updateFoodInMeal(dateStr, editing.mealType, editing.foodId, {
-      quantityG: newQty,
-      calories: Math.round(editing.originalCalories * factor),
-      proteinG: Math.round(editing.originalProtein * factor * 10) / 10,
-      carbsG: Math.round(editing.originalCarbs * factor * 10) / 10,
-      fatsG: Math.round(editing.originalFats * factor * 10) / 10,
-    });
+    setSaveError(null);
+    // La quantità riscala calorie e macro, come in precedenza.
+    updateFood.mutate(
+      {
+        foodId: editing.foodId,
+        mealId: editing.mealId,
+        patch: {
+          quantityG: newQty,
+          calories: Math.round(editing.originalCalories * factor),
+          proteinG: Math.round(editing.originalProtein * factor * 10) / 10,
+          carbsG: Math.round(editing.originalCarbs * factor * 10) / 10,
+          fatsG: Math.round(editing.originalFats * factor * 10) / 10,
+        },
+      },
+      { onError: (err) => setSaveError(errorMessage(err)) },
+    );
     setEditing(null);
-    bump();
   }
 
-  function handleDelete(foodMealType: MealType, foodId: string) {
-    setDeleteConfirm({ mealType: foodMealType, foodId, name: meals.find((m) => m.type === foodMealType)?.foodItems.find((f) => f.id === foodId)?.name ?? "" });
+  function handleDelete(mealType: MealType, foodId: string) {
+    const meal = meals.find((m) => m.type === mealType);
+    const item = meal?.foodItems.find((f) => f.id === foodId);
+    if (!item || !meal) return;
+    setDeleteConfirm({ mealId: meal.id, mealType, foodId, name: item.name });
   }
 
   function confirmDelete() {
     if (!deleteConfirm) return;
-    removeFoodFromMeal(dateStr, deleteConfirm.mealType, deleteConfirm.foodId);
+    setSaveError(null);
+    deleteFood.mutate(
+      { foodId: deleteConfirm.foodId, mealId: deleteConfirm.mealId },
+      { onError: (err) => setSaveError(errorMessage(err)) },
+    );
     setDeleteConfirm(null);
-    bump();
   }
 
   function handleGeneratePress() {
-    if (!isPremium) {
-      setShowGenerateUpsell(true);
-      return;
-    }
-    setShowGenerate(true);
+    // Generazione AI ancora stub: nessuna chiamata, solo avviso esplicito.
+    setAiNotice(true);
   }
+
+  const planCard = activePlan ? (
+    <Card className="flex-row items-center gap-3 p-4">
+      <View className="h-10 w-10 items-center justify-center rounded-xl bg-primary/15">
+        <UtensilsCrossed size={18} color="#F97316" strokeWidth={2.2} />
+      </View>
+      <View className="flex-1">
+        <Text className="font-inter-semibold text-base text-foreground" numberOfLines={1}>
+          {activePlan.name}
+        </Text>
+        <Text className="mt-0.5 font-sans text-xs text-muted">
+          Piano attivo
+          {activePlan.daily_calorie_target ? ` · ${activePlan.daily_calorie_target} kcal/giorno` : ""}
+        </Text>
+      </View>
+    </Card>
+  ) : (
+    <Card className="p-4">
+      <Text className="font-inter-semibold text-sm text-foreground">Nessun piano dieta</Text>
+      <Text className="mt-0.5 font-sans text-xs text-muted">
+        I target qui sotto arrivano dal tuo profilo: puoi aggiungere i pasti anche senza un piano.
+      </Text>
+    </Card>
+  );
 
   const macroCard = (
     <Card className="gap-4">
@@ -163,39 +225,41 @@ export default function DietaScreen() {
           <Text className="font-inter-semibold text-sm text-foreground">Riepilogo giornaliero</Text>
         </View>
         <Text className="font-inter-bold text-sm text-foreground">
-          {Math.round(totals.calories)} / {DIET_TARGETS.calories} kcal
+          {Math.round(totals.calories)} / {targetCalories > 0 ? targetCalories : "—"} kcal
         </Text>
       </View>
       <View className="h-2 overflow-hidden rounded-full bg-background">
         <View
           className="h-2 rounded-full bg-primary"
-          style={{ width: `${Math.min(100, Math.round((totals.calories / DIET_TARGETS.calories) * 100))}%` }}
+          style={{
+            width: `${targetCalories > 0 ? Math.min(100, Math.round((totals.calories / targetCalories) * 100)) : 0}%`,
+          }}
         />
       </View>
       <View className="gap-3">
-        <MacroProgressBar label="Proteine" current={totals.proteinG} target={DIET_TARGETS.proteinG} color="#F97316" />
-        <MacroProgressBar label="Carboidrati" current={totals.carbsG} target={DIET_TARGETS.carbsG} color="#22C55E" />
-        <MacroProgressBar label="Grassi" current={totals.fatsG} target={DIET_TARGETS.fatsG} color="#38BDF8" />
+        <MacroProgressBar label="Proteine" current={totals.proteinG} target={targetProtein} color="#F97316" />
+        <MacroProgressBar label="Carboidrati" current={totals.carbsG} target={targetCarbs} color="#22C55E" />
+        <MacroProgressBar label="Grassi" current={totals.fatsG} target={targetFats} color="#38BDF8" />
       </View>
     </Card>
   );
 
-  const mealsList = (
-    <View className="gap-3">
-      {meals.map((meal) => (
-        <MealSection
-          key={meal.id}
-          meal={meal}
-          expanded={Boolean(expanded[meal.type])}
-          onToggle={() => toggleMeal(meal.type as MealType)}
-          onAdd={() => setAddMealType(meal.type as MealType)}
-          onEditFood={(fid) => handleRequestEdit(meal.type as MealType, fid)}
-          onDeleteFood={(fid) => handleDelete(meal.type as MealType, fid)}
-          readOnly={isReadOnly}
-        />
-      ))}
-    </View>
-  );
+  function mealSection(meal: (typeof meals)[number]) {
+    return (
+      <MealSection
+        key={meal.id}
+        meal={meal}
+        expanded={Boolean(expanded[meal.type])}
+        onToggle={() => toggleMeal(meal.type as MealType)}
+        onAdd={() => setAddMealType(meal.type as MealType)}
+        onEditFood={(fid) => handleRequestEdit(meal.type as MealType, fid)}
+        onDeleteFood={(fid) => handleDelete(meal.type as MealType, fid)}
+        readOnly={isReadOnly}
+      />
+    );
+  }
+
+  const mealsList = <View className="gap-3">{meals.map(mealSection)}</View>;
 
   const generateButton = !isReadOnly ? (
     <Pressable
@@ -214,6 +278,89 @@ export default function DietaScreen() {
       </Text>
     </View>
   );
+
+  const aiStubNotice = aiNotice ? (
+    <Card className="gap-1 border border-border p-4">
+      <Text className="font-inter-semibold text-sm text-foreground">Generazione AI non ancora disponibile</Text>
+      <Text className="font-sans text-sm leading-5 text-muted">
+        È ancora uno stub: il generatore verrà collegato al backend insieme all'integrazione Gemini. Nel frattempo puoi comporre la giornata con l'inserimento manuale.
+      </Text>
+    </Card>
+  ) : null;
+
+  const saveErrorBanner = saveError ? (
+    <Card className="gap-1 p-4">
+      <Text className="font-inter-semibold text-sm text-destructive">Operazione non riuscita</Text>
+      <Text className="font-sans text-sm leading-5 text-muted">{saveError}</Text>
+    </Card>
+  ) : null;
+
+  /** Contenuto sotto l'header: loading, errore o dati. */
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <View className="items-center gap-3 py-10">
+        <ActivityIndicator color="#F97316" />
+        <Text className="font-sans text-sm text-muted">Caricamento della dieta…</Text>
+      </View>
+    );
+  } else if (isError) {
+    body = (
+      <Card className="items-center gap-3 p-6">
+        <Text className="font-inter-semibold text-base text-foreground">Impossibile caricare la dieta</Text>
+        <Text className="text-center font-sans text-sm text-muted">{errorMessage(error)}</Text>
+        {!isReadOnly ? (
+          <Pressable
+            onPress={refetch}
+            accessibilityRole="button"
+            className="mt-1 flex-row items-center gap-1.5 rounded-xl bg-primary px-5 py-3 active:opacity-80"
+          >
+            <RefreshCw size={16} color="#0F172A" strokeWidth={2.5} />
+            <Text className="font-inter-bold text-sm text-primary-foreground">Riprova</Text>
+          </Pressable>
+        ) : null}
+      </Card>
+    );
+  } else {
+    const mealsSection = (
+      <View className="gap-3">
+        <Text className="font-inter-semibold text-base text-foreground">Pasti</Text>
+        {mealsList}
+      </View>
+    );
+    body = (
+      <View className="w-full gap-6">
+        {saveErrorBanner}
+        {planCard}
+        {isWide ? (
+          <View className="w-full flex-row items-start gap-6">
+            <View className="flex-1 gap-6">
+              {macroCard}
+              <View className="gap-3">
+                <Text className="font-inter-semibold text-base text-foreground">Pasti</Text>
+                <View className="gap-3">{meals.slice(0, 2).map(mealSection)}</View>
+              </View>
+            </View>
+            <View className="flex-1 gap-6">
+              <View className="gap-3">
+                <Text className="font-inter-semibold text-base text-foreground invisible">Pasti</Text>
+                <View className="gap-3 pt-0">{meals.slice(2).map(mealSection)}</View>
+              </View>
+              {generateButton}
+              {aiStubNotice}
+            </View>
+          </View>
+        ) : (
+          <>
+            {macroCard}
+            {mealsSection}
+            {generateButton}
+            {aiStubNotice}
+          </>
+        )}
+      </View>
+    );
+  }
 
   return (
     <Screen>
@@ -242,92 +389,11 @@ export default function DietaScreen() {
           </View>
         </View>
 
-        {isWide ? (
-          <View className="w-full flex-row items-start gap-6">
-            <View className="flex-1 gap-6">
-              {macroCard}
-              <View className="gap-3">
-                <Text className="font-inter-semibold text-base text-foreground">Pasti</Text>
-                <View className="gap-3">
-                  {meals.slice(0, 2).map((meal) => (
-                    <MealSection
-                      key={meal.id}
-                      meal={meal}
-                      expanded={Boolean(expanded[meal.type])}
-                      onToggle={() => toggleMeal(meal.type as MealType)}
-                      onAdd={() => setAddMealType(meal.type as MealType)}
-                      onEditFood={(fid) => handleRequestEdit(meal.type as MealType, fid)}
-                      onDeleteFood={(fid) => handleDelete(meal.type as MealType, fid)}
-                      readOnly={isReadOnly}
-                    />
-                  ))}
-                </View>
-              </View>
-            </View>
-            <View className="flex-1 gap-6">
-              <View className="gap-3">
-                <Text className="font-inter-semibold text-base text-foreground hidden">Pasti</Text>
-                <View className="gap-3 pt-0">
-                  {meals.slice(2).map((meal) => (
-                    <MealSection
-                      key={meal.id}
-                      meal={meal}
-                      expanded={Boolean(expanded[meal.type])}
-                      onToggle={() => toggleMeal(meal.type as MealType)}
-                      onAdd={() => setAddMealType(meal.type as MealType)}
-                      onEditFood={(fid) => handleRequestEdit(meal.type as MealType, fid)}
-                      onDeleteFood={(fid) => handleDelete(meal.type as MealType, fid)}
-                      readOnly={isReadOnly}
-                    />
-                  ))}
-                </View>
-              </View>
-              {generateButton}
-            </View>
-          </View>
-        ) : (
-          <>
-            {macroCard}
-            <View className="gap-3">
-              <Text className="font-inter-semibold text-base text-foreground">Pasti</Text>
-              {mealsList}
-            </View>
-            {generateButton}
-          </>
-        )}
+        {body}
       </ScrollView>
 
-      {/* Modal aggiunta alimento */}
-      <AddFoodModal visible={Boolean(addMealType)} mealType={addMealType} onClose={() => setAddMealType(null)} onAdd={handleAddFood} isPremium={isPremium} />
-
-      {/* Modal genera dieta con AI */}
-      <Modal visible={showGenerate} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={() => setShowGenerate(false)} statusBarTranslucent>
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
-            <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
-              <Text className="flex-1 font-inter-bold text-lg text-foreground">Genera dieta con AI</Text>
-              <Pressable onPress={() => setShowGenerate(false)} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
-                <X size={20} color="#94A3B8" strokeWidth={2.2} />
-              </Pressable>
-            </View>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 p-4 pb-8">
-              <GenerateDietFlow
-                onDone={() => {
-                  setShowGenerate(false);
-                  bump();
-                }}
-              />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <PremiumUpsellModal
-        visible={showGenerateUpsell}
-        onClose={() => setShowGenerateUpsell(false)}
-        title="Genera dieta con AI — Premium"
-        description="La generazione AI della dieta è disponibile solo per utenti Premium o in prova. Passa a Premium per creare il tuo piano settimanale su misura."
-      />
+      {/* Modal aggiunta alimento (manuale reale; foto/barcode/upload = stub) */}
+      <AddFoodModal visible={Boolean(addMealType)} mealType={addMealType} onClose={() => setAddMealType(null)} onAdd={handleAddFood} />
 
       {/* Modal modifica quantità */}
       <Modal visible={Boolean(editing)} transparent animationType={Platform.OS === "web" ? "none" : "fade"} onRequestClose={() => setEditing(null)} statusBarTranslucent>
