@@ -326,6 +326,24 @@ con `API_BASE=""` e tutte le chiamate finiscono nei rewrite di `vercel.json`
 `Settings → Environment Variables` e verificare nel bundle che la costante
 `API_BASE` contenga `onrender.com`.
 
+### Conferma email (Supabase Auth)
+
+`Confirm email` resta **attiva** in produzione: il link nella mail verifica
+il token sul dominio Supabase e solo dopo rimanda al **Site URL**. Per far
+rientrare l'utente dentro il PWA (e non su `localhost:3000` o su una
+pagina di errore del browser) in dashboard Supabase → *Authentication →
+URL Configuration*:
+
+- **Site URL** → `https://fit-track-delta-green.vercel.app/email-verified`
+- **Redirect URLs** → `https://fit-track-delta-green.vercel.app/**`
+
+La route `/(auth)/email-verified` legge la sessione dai token nell'URL,
+mostra "Email verificata!" e con un pulsante entra nell'app (il guard in
+`app/_layout.tsx` la salta apposta, è la pagina a gestire il flusso).
+Anche senza questa configurazione la conferma avviene comunque — la verifica
+avviene prima del redirect — ma l'utente si trova davanti al rimbalzo
+morte verso localhost.
+
 ### Gate di produzione
 
 Stesse suite ambientate sul cloud. Lo script E2E registra utenti veri, quindi

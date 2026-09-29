@@ -79,6 +79,10 @@ function RootNavigator() {
 
     const inAuthGroup = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
+    // La destinazione del link di conferma gestisce il flusso da sola
+    // (sessione dai token dell'URL → "Email verificata" → pulsanti).
+    const inEmailVerified = segments[0] === "(auth)" && segments[1] === "email-verified";
+    if (inEmailVerified) return;
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace("/(auth)/login");
