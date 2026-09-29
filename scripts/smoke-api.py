@@ -166,11 +166,14 @@ def expected_targets(birth: datetime.date, gender: str, height: float,
 # ------------------------------------------------------------------ helpers
 
 def psql(sql: str) -> None:
-    subprocess.run(
-        ["docker", "exec", "supabase_db_FitTrack", "psql", "-U", "postgres",
-         "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", sql],
-        check=True, capture_output=True, text=True,
-    )
+    """Seed/cleanup SQL sul DB locale (container Docker della Supabase CLI).
+    Con `SMOKE_DB_URL` (es. pooler cloud) la stessa suite gira contro un
+    backend remoto: la connessione passa a quella indicata dall'env."""
+    target = os.environ.get("SMOKE_DB_URL")
+    cmd = ["docker", "exec", "supabase_db_FitTrack", "psql"]
+    cmd += [target] if target else ["-U", "postgres", "-d", "postgres"]
+    cmd += ["-v", "ON_ERROR_STOP=1", "-c", sql]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
 def req(method: str, path: str, body=None, raw: str | None = None,
