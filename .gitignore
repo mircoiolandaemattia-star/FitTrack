@@ -41,6 +41,11 @@ yarn-error.*
 # backend compilato (build su Render)
 dist-server/
 
+# client Prisma generato (rigenerato con `npx prisma generate`)
+# senza `output` in schema.prisma finisce in node_modules/.prisma/client
+# (già coperto da node_modules/); /generated/ copre un eventuale output a root
+/generated/
+
 example
 
 # generated native folders
