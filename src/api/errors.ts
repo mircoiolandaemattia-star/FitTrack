@@ -40,13 +40,18 @@ export class HttpError extends Error {
 }
 
 /** Errore del body parser di Express (`express.json()`). */
-type BodyParserError = SyntaxError & { type?: string; status?: number };
+type BodyParserError = Error & { type?: string; status?: number };
 
+/**
+ * I parser di Express marcano i loro errori con `type`
+ * (`entity.parse.failed`, `entity.too.large`, `charset.unsupported`, …).
+ * Non tutti sono `SyntaxError` (solo il JSON malformato lo è): senza
+ * controllare solo `type`, un corpo troppo grande cadrebbe nel ramo 500
+ * invece che nel 413 documentato qui sotto.
+ */
 function isBodyParserError(error: unknown): error is BodyParserError {
-  return (
-    error instanceof SyntaxError &&
-    typeof (error as { type?: unknown }).type === "string"
-  );
+  if (!(error instanceof Error)) return false;
+  return typeof (error as { type?: unknown }).type === "string";
 }
 
 function zodDetails(error: ZodError): unknown[] {
