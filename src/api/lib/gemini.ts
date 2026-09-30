@@ -21,7 +21,9 @@ import { HttpError } from "../errors";
  * - `GEMINI_BLOCKED`         502  richiesta bloccata dai filtri di Google
  * - `GEMINI_INVALID_RESPONSE`502  corpo non JSON, vuoto o non valido
  */
-const DEFAULT_MODEL = "gemini-2.5-flash";
+// I nuovi progetti possono usare solo i modelli recenti (Google ha ritirato
+// gemini-2.5-flash con 404 "no longer available to new users").
+const DEFAULT_MODEL = "gemini-3.8-flash";
 const DEFAULT_TIMEOUT_MS = 45_000;
 
 export interface GeminiAttachment {
