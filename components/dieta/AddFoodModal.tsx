@@ -265,6 +265,10 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
       return;
     }
     lookup.mutate(code, {
+      // La risposta della mutation va copiata nello stato locale: senza
+      // questo collegamento la ricerca terminava senza errori ma senza mai
+      // mostrare il prodotto (nessuno leggeva `lookup.data`).
+      onSuccess: (product) => setBarcodeProduct(product),
       onError: (error) => setBarcodeError(foodLookupErrorMessage(error)),
     });
   }
