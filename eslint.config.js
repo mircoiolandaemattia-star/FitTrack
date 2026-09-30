@@ -15,7 +15,7 @@ module.exports = defineConfig([
   },
   {
     // Script Node (postinstall, tooling): globals di ambiente Node.
-    files: ["scripts/**/*.js", "*.cjs"],
+    files: ["scripts/**/*.js", "scripts/**/*.mjs", "*.cjs"],
     languageOptions: {
       globals: {
         __dirname: "readonly",

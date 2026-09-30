@@ -1,18 +1,13 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { aiFeatureSchema, countUsageToday } from "./lib/aiAccess";
 import type { Handler } from "./types";
 import { parse } from "./validate";
 
-/** Feature AI tracciate: corrisponde esattamente ad `ai_usage_log.feature`. */
-const featureSchema = z.enum([
-  "photo_meal",
-  "workout_generation",
-  "diet_generation",
-  "file_upload",
-]);
-
-const createBody = z.object({ feature: featureSchema });
-const todayQuery = z.object({ feature: featureSchema });
+// Feature e conteggio "di oggi" stanno in lib/aiAccess: sono le stesse che
+// usano gli endpoint /api/ai/* per il gating, così non possono divergere.
+const createBody = z.object({ feature: aiFeatureSchema });
+const todayQuery = z.object({ feature: aiFeatureSchema });
 
 /**
  * Registra l'uso di una funzione AI (chiamato dalle feature che la
@@ -31,19 +26,10 @@ export const logAiUsage: Handler = async (req) => {
 /**
  * Usi di oggi per una feature (giornata locale del server, da mezzanotte):
  * serve al piano free per il limite di 2 foto AI/giorno. Qui si **conta**
- * e basta — decidere se bloccare spetta a chi chiama.
+ * e basta — decidere se bloccare spetta a chi chiama (`lib/aiAccess`).
  */
 export const todayAiUsage: Handler = async (req) => {
   const { feature } = parse(todayQuery, req.query);
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfNextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const count = await prisma.ai_usage_log.count({
-    where: {
-      user_id: req.user_id,
-      feature,
-      used_at: { gte: startOfDay, lt: startOfNextDay },
-    },
-  });
+  const count = await countUsageToday(req.user_id, feature);
   return { status: 200, body: { feature, count } };
 };

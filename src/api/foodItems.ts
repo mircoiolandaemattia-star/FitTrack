@@ -18,7 +18,7 @@ const createBody = z.object({
   protein_g: z.number().min(0).max(1000),
   carbs_g: z.number().min(0).max(1000),
   fat_g: z.number().min(0).max(1000),
-  source: z.enum(["barcode", "photo", "manual", "upload"]),
+  source: z.enum(["barcode", "photo", "manual", "upload", "ai"]),
   barcode: z.string().trim().min(1).max(64).optional(),
   photo_url: z.string().trim().min(1).max(2048).optional(),
 });

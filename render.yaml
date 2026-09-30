@@ -25,6 +25,9 @@ services:
       # Origin abilitate al CORS (CSV) — PUNTO 5: sostituire col dominio PWA reale
       - key: ALLOWED_ORIGIN
         value: http://localhost:8081
+      # Chiave Google AI Studio per le feature AI (/api/ai/*): inserirla nel
+      # dashboard dopo la creazione del servizio (secret, mai nel repo)
+      - key: GEMINI_API_KEY
+        sync: false
       # Segreti futuri (aggiungere qui con sync: false quando servono):
-      #   GEMINI_API_KEY  — feature AI (scheda/dieta, foto pasti)
       #   RESEND_API_KEY  — email transazionali

@@ -131,7 +131,7 @@ model food_items {
   protein_g   Float
   carbs_g     Float
   fat_g       Float
-  source      String // "barcode" | "photo" | "manual" | "upload"
+  source      String // "barcode" | "photo" | "manual" | "upload" | "ai"
   barcode     String?
   photo_url   String?
   created_at  DateTime @default(now())

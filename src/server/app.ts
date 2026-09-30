@@ -19,6 +19,13 @@ export function createApp(): Express {
     .map((origin) => origin.trim())
     .filter(Boolean);
   app.use(cors({ origin: allowedOrigins }));
+
+  // Parser delle route che ricevono file (foto pasto e PDF base64): limite
+  // più alto del generale, applicato PRIMA del parser globale per il solo
+  // path interessato (body-parser salta il corpo già letto). Il resto
+  // dell'API resta vincolato a 1mb.
+  app.use("/api/ai/meal-photo", express.json({ limit: "8mb" }));
+  app.use("/api/ai/file-read", express.json({ limit: "8mb" }));
   app.use(express.json({ limit: "1mb" }));
 
   // Health check per Render (il Web Service fa polling su /health)

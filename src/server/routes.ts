@@ -1,5 +1,9 @@
 import { Router } from "express";
+import * as aiDietGenerate from "../api/aiDietGenerate";
+import * as aiFileRead from "../api/aiFileRead";
+import * as aiMealPhoto from "../api/aiMealPhoto";
 import * as aiUsageLog from "../api/aiUsageLog";
+import * as aiWorkoutGenerate from "../api/aiWorkoutGenerate";
 import * as bodyMeasurements from "../api/bodyMeasurements";
 import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
@@ -75,6 +79,14 @@ export function apiRouter(): Router {
   // Log in append + conteggio: nessun PUT/DELETE, nessuna lista
   router.post("/ai-usage-log", wrap(aiUsageLog.logAiUsage));
   router.get("/ai-usage-log/today", wrap(aiUsageLog.todayAiUsage));
+
+  // Feature Gemini: quota/gating in ogni handler (lib/aiAccess), chiamate
+  // al modello solo via lib/gemini. Tutte rispondono 201 con la bozza o il
+  // piano: la riga in ai_usage_log creata è essa stessa una risorsa.
+  router.post("/ai/meal-photo", wrap(aiMealPhoto.analyzeMealPhoto));
+  router.post("/ai/workout-generate", wrap(aiWorkoutGenerate.generateWorkout));
+  router.post("/ai/diet-generate", wrap(aiDietGenerate.generateDiet));
+  router.post("/ai/file-read", wrap(aiFileRead.readFile));
 
   router.get("/workout-plans", wrap(workoutPlans.listWorkoutPlans));
   router.post("/workout-plans", wrap(workoutPlans.createWorkoutPlan));
