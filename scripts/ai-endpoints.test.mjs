@@ -349,8 +349,11 @@ async function main() {
     });
     const workoutPlan = workout.body;
     check("premium: workout-generate → 201 con source \"ai\"", workout.status === 201 && workoutPlan?.source === "ai" && workoutPlan?.user_id === premiumId, workout.text.slice(0, 300));
+    // day_order segue la convenzione del client (1 = lunedì … 7 = domenica):
+    // con un 0-based il primo giorno collassava sul lunedì insieme al secondo.
     check("premium: workout con giorni ed esercizi annidati", workoutPlan?.workout_days?.length === 2 &&
-      workoutPlan.workout_days[0].day_order === 0 &&
+      workoutPlan.workout_days[0].day_order === 1 &&
+      workoutPlan.workout_days[1].day_order === 2 &&
       workoutPlan.workout_days[0].exercises?.length === 2 &&
       workoutPlan.workout_days[0].exercises[0].order_index === 0 &&
       workoutPlan.workout_days[0].exercises[0].sets === 4, JSON.stringify(workoutPlan?.workout_days ?? {}).slice(0, 300));

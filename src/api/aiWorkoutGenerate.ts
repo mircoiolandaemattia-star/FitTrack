@@ -69,7 +69,11 @@ export const generateWorkout: Handler = async (req) => {
       workout_days: {
         create: generated.days.map((day, dayIndex) => ({
           name: day.name,
-          day_order: dayIndex,
+          // Convenzione del client (lib/workoutQueries): 1 = lunedì …
+          // 7 = domenica. Con day_order 0-based il primo giorno veniva
+          // mappato due volte sul lunedì e uno dei due risultava invisibile
+          // nella vista settimanale.
+          day_order: dayIndex + 1,
           exercises: {
             create: day.exercises.map((exercise, exerciseIndex) => ({
               name: exercise.name,

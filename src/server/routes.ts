@@ -8,6 +8,7 @@ import * as bodyMeasurements from "../api/bodyMeasurements";
 import * as dietPlans from "../api/dietPlans";
 import * as exercises from "../api/exercises";
 import * as foodItems from "../api/foodItems";
+import * as foodLookup from "../api/foodLookup";
 import * as meals from "../api/meals";
 import * as progressPhotos from "../api/progressPhotos";
 import * as reminders from "../api/reminders";
@@ -55,6 +56,9 @@ export function apiRouter(): Router {
 
   router.get("/food-items", wrap(foodItems.listFoodItems));
   router.post("/food-items", wrap(foodItems.createFoodItem));
+  // Prima di "/food-items/:id": altrimenti "lookup" verrebbe catturato
+  // dall'id e risposto con 422 invece del lookup del prodotto.
+  router.get("/food-items/lookup", wrap(foodLookup.lookupFood));
   router.get("/food-items/:id", wrap(foodItems.getFoodItem));
   router.put("/food-items/:id", wrap(foodItems.updateFoodItem));
   router.delete("/food-items/:id", wrap(foodItems.deleteFoodItem));
