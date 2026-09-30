@@ -102,20 +102,41 @@ function modelChain(): string[] {
   return [primary, ...fallbacks];
 }
 
-/** Testo utile (tracciato) di un body di errore Google, senza rumorosità. */
-function snippet(text: string): string {
+/**
+ * Testo utile (tracciato) di un body di errore Google, senza rumorosità.
+ * `limit` più alto su 429: lì dentro (dopo "* Quota exceeded") stanno
+ * metrica, limite e finestra, che con 300 chars venivano tagliati via.
+ */
+function snippet(text: string, limit = 300): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > 300 ? `${clean.slice(0, 300)}…` : clean;
+  return clean.length > limit ? `${clean.slice(0, limit)}…` : clean;
+}
+
+/**
+ * Il frammento di quota di un 429 di Google ("* Quota exceeded for quota
+ * metric … with limit … per …"): è l'unica parte che dice quale limite è
+ * stato colpito e quando si azzerra.
+ */
+function quotaExceeded(body: string): string | undefined {
+  const at = body.indexOf("* Quota exceeded");
+  if (at < 0) return undefined;
+  return snippet(body.slice(at), 600);
 }
 
 /** Mappa lo status HTTP di Google su un `HttpError` con codice proprio. */
 function googleStatusError(status: number, body: string, model: string): HttpError {
-  const details = { googleStatus: status, model, body: snippet(body) };
+  const quota = status === 429 ? quotaExceeded(body) : undefined;
+  const details = { googleStatus: status, model, body: snippet(body), ...(quota ? { quota } : {}) };
   if (status === 429) {
+    // Il frammento di quota dice la finestra: con un limite giornaliero
+    // "riprova tra qualche minuto" sarebbe un consiglio sbagliato.
+    const daily = quota !== undefined && /\bday\b|giornalier/i.test(quota);
     return new HttpError(
       429,
       "GEMINI_RATE_LIMITED",
-      "Limite di richieste raggiunto su Gemini: riprova tra qualche minuto.",
+      daily
+        ? "Limite giornaliero di Gemini raggiunto: riprova domani."
+        : "Limite di richieste raggiunto su Gemini: riprova tra qualche minuto.",
       details,
     );
   }
