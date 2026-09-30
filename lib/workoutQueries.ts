@@ -259,6 +259,76 @@ export function useSaveWorkoutDay() {
   });
 }
 
+export interface SaveWorkoutPlanInput {
+  name: string;
+  source: "ai" | "upload" | "manual";
+  days: {
+    name: string;
+    exercises: {
+      name: string;
+      sets: number;
+      reps: number;
+      weightKg: number;
+      restSeconds?: number | null;
+      notes?: string | null;
+    }[];
+  }[];
+}
+
+/**
+ * Salva un'intera scheda (piano → giorni → esercizi) in sequenza.
+ *
+ * Serve all'importazione di un file: la bozza è multi-giorno e non
+ * corrisponde ai giorni scelti dal form manuale, quindi occupa un piano
+ * nuovo con i giorni in fila da 1 (stessa convenzione 1 = lunedì di
+ * `weekdayToDayOrder`, altrimenti il primo giorno collasserebbe sul
+ * lunedì con il secondo). Il primo id tornato serve alla schermata per
+ * aprire il giorno appena creato.
+ */
+export function useSaveWorkoutPlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (
+      input: SaveWorkoutPlanInput,
+    ): Promise<{ planId: string; firstDayId: string }> => {
+      // 1. Un piano nuovo: la scheda importata non tocca quella esistente.
+      const plan = await api.post<ApiWorkoutPlan>("/workout-plans", {
+        name: input.name,
+        source: input.source,
+      });
+
+      // 2. Giorni in fila da 1, poi gli esercizi di ciascuno in ordine.
+      let firstDayId = "";
+      for (const [index, day] of input.days.entries()) {
+        const createdDay = await api.post<ApiWorkoutDay>("/workout-days", {
+          workout_plan_id: plan.id,
+          name: day.name,
+          day_order: index + 1,
+        });
+        if (index === 0) firstDayId = createdDay.id;
+        await Promise.all(
+          day.exercises.map((exercise, exerciseIndex) =>
+            api.post("/exercises", {
+              workout_day_id: createdDay.id,
+              name: exercise.name,
+              sets: exercise.sets,
+              reps: exercise.reps,
+              ...(exercise.weightKg > 0 ? { weight_kg: exercise.weightKg } : {}),
+              ...(exercise.restSeconds != null ? { rest_seconds: exercise.restSeconds } : {}),
+              ...(exercise.notes ? { notes: exercise.notes } : {}),
+              order_index: exerciseIndex + 1,
+            }),
+          ),
+        );
+      }
+
+      return { planId: plan.id, firstDayId };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
+  });
+}
+
 export interface CreateWorkoutSessionInput {
   planId: string;
   dayId: string;

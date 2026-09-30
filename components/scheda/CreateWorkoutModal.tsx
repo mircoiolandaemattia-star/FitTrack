@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -25,13 +25,14 @@ import {
   Trash2,
   X,
 } from "lucide-react-native";
-import type { DayOfWeek, ExerciseTemplate, WorkoutDraft } from "@/types";
+import type { DayOfWeek, ExerciseTemplate } from "@/types";
 import { isApiError } from "@/lib/api";
-import { useSaveWorkoutDay } from "@/lib/workoutQueries";
+import { aiErrorMessage, useGenerateWorkout, useReadFile, type AiFileWorkout } from "@/lib/aiQueries";
+import { documentMimeType, DocumentReadError, readDocumentBase64 } from "@/lib/fileReader";
+import { useSaveWorkoutDay, useSaveWorkoutPlan } from "@/lib/workoutQueries";
 import {
   AI_GOAL_OPTIONS,
   AI_LEVEL_OPTIONS,
-  generateMockWorkout,
   getDayShortLabel,
   getDefaultExercises,
   MOCK_EXERCISE_LIBRARY,
@@ -62,6 +63,25 @@ type FormExercise = {
   sets: string;
   reps: string;
   weight: string;
+};
+
+/**
+ * Anteprima di una scheda generata dall'AI o importata da file: la stessa
+ * forma per entrambi i flussi, così una sola schermata di risultato fa da
+ * conferma prima della chiusura (e del salvataggio, per il file).
+ */
+type PreviewExercise = {
+  name: string;
+  sets: number;
+  reps: number;
+  weightKg: number | null;
+  restSeconds: number | null;
+  notes: string | null;
+};
+
+type PlanPreview = {
+  name: string;
+  days: { name: string; exercises: PreviewExercise[] }[];
 };
 
 let uidCounter = 0;
@@ -213,10 +233,12 @@ function PrimaryButton({
 }
 
 /**
- * Modal "Crea scheda" con tre flussi: creazione manuale (giorno + tipo +
- * esercizi riordinabili) salvata davvero via API, importazione di un file
- * esistente e generazione AI multi-step — entrambi ancora stub in attesa
- * dell'integrazione Gemini.
+ * Modal "Crea scheda" con tre flussi, tutti collegati al backend:
+ *
+ * - manuale → `POST /workout-days` (e piano al primo uso);
+ * - importa file → `POST /ai/file-read` con anteprima, poi salvataggio;
+ * - genera con AI → `POST /ai/workout-generate`, che salva direttamente
+ *   il piano (funzione premium) e torna la scheda pronta da usare.
  */
 export function CreateWorkoutModal({
   visible,
@@ -231,8 +253,13 @@ export function CreateWorkoutModal({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Scrittura reale del giorno (piano → giorno → esercizi).
+  // Scrittura reale: giorno singolo (manuale) o scheda intera (file).
   const saveDay = useSaveWorkoutDay();
+  const savePlan = useSaveWorkoutPlan();
+
+  // Generazione e lettura file: le due chiamate AI del modal.
+  const generate = useGenerateWorkout();
+  const readFile = useReadFile();
 
   // Stato del flusso manuale.
   const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>("monday");
@@ -248,21 +275,20 @@ export function CreateWorkoutModal({
   const [aiLevel, setAiLevel] = useState("intermedio");
   const [aiDays, setAiDays] = useState(4);
   const [aiEquipment, setAiEquipment] = useState<string[]>(["palestra"]);
-  const [aiDraft, setAiDraft] = useState<WorkoutDraft | null>(null);
 
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Risultato da mostrare in conferma. `saved` = il piano è già sul
+   * server (generazione AI): il pulsante chiude e basta, mentre per
+   * l'importazione file parte il salvataggio.
+   */
+  const [preview, setPreview] = useState<{
+    plan: PlanPreview;
+    saved: boolean;
+    firstDayId: string | null;
+  } | null>(null);
 
-  function schedule(action: () => void, ms: number) {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(action, ms);
-  }
-
-  // Pulisce i timer in sospeso.
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  /** Una richiesta AI o di salvataggio è in corso (niente navigazione). */
+  const busy = generate.isPending || readFile.isPending || savePlan.isPending;
 
   const libraryGroups = useMemo(() => {
     const map = new Map<string, ExerciseTemplate[]>();
@@ -343,7 +369,30 @@ export function CreateWorkoutModal({
 
   /* --------------------- Flusso importa file ------------------------ */
 
+  /** Converte la bozza di `POST /ai/file-read` nell'anteprima comune. */
+  function toPlanPreview(workout: AiFileWorkout): PlanPreview {
+    return {
+      name: workout.name,
+      days: workout.days.map((day) => ({
+        name: day.name,
+        exercises: day.exercises.map((exercise) => ({
+          name: exercise.name,
+          sets: exercise.sets,
+          reps: exercise.reps,
+          weightKg: exercise.weight_kg,
+          restSeconds: exercise.rest_seconds,
+          notes: exercise.notes,
+        })),
+      })),
+    };
+  }
+
+  /**
+   * File → `POST /ai/file-read` (kind "workout"): la scheda estratta
+   * torna come bozza e si salva solo quando l'utente conferma.
+   */
   async function handlePickFile() {
+    setError(null);
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ["application/pdf", "image/*"],
@@ -352,44 +401,106 @@ export function CreateWorkoutModal({
       if (result.canceled) return;
       const asset = result.assets?.[0];
       if (!asset) return;
-      setFileName(asset.name ?? "Scheda.pdf");
-      setError(null);
+      setFileName(asset.name);
       setMode("upload-loading");
-      schedule(() => setMode("upload-result"), 2200);
-    } catch {
-      setError("Impossibile aprire il selettore file.");
+      const mimeType = documentMimeType(asset);
+      const file = await readDocumentBase64(asset);
+      const extracted = await readFile.mutateAsync({ file, mimeType, kind: "workout" });
+      if (extracted.kind !== "workout") {
+        setError("Il file sembra una dieta: importala dalla sezione Dieta.");
+        setMode("upload");
+        return;
+      }
+      setPreview({ plan: toPlanPreview(extracted.workout), saved: false, firstDayId: null });
+      setMode("upload-result");
+    } catch (err) {
+      setError(err instanceof DocumentReadError ? err.message : aiErrorMessage(err));
+      setMode("upload");
     }
-  }
-
-  /* --------------------- Flusso importa file ------------------------ */
-  // Solo preview: il salvataggio reale arriva con l'integrazione AI.
-
-  function handleApplyImported() {
-    // Stub: niente scrittura finché l'estrazione non sarà collegata.
-    setError("Salvataggio non ancora collegato: per ora crea il giorno in manuale.");
   }
 
   /* --------------------------- Flusso AI ---------------------------- */
 
-  function startGeneration() {
-    const draft = generateMockWorkout({
-      goal: aiGoal,
-      level: aiLevel,
-      daysPerWeek: aiDays,
-      equipment: aiEquipment,
-    });
-    setAiDraft(draft);
+  /**
+   * `POST /ai/workout-generate`: il backend salva il piano (funzione
+   * premium) e torna giorni ed esercizi già pronti, qui solo mostrati.
+   */
+  async function startGeneration() {
+    setError(null);
     setMode("ai-loading");
-    schedule(() => setMode("ai-result"), 2000);
+    try {
+      const goal = AI_GOAL_OPTIONS.find((option) => option.key === aiGoal)?.label ?? aiGoal;
+      const level = AI_LEVEL_OPTIONS.find((option) => option.key === aiLevel)?.label ?? aiLevel;
+      const equipment = aiEquipment.map(
+        (key) => WORKOUT_EQUIPMENT_OPTIONS.find((option) => option.key === key)?.label ?? key,
+      );
+      const plan = await generate.mutateAsync({ goal, level, daysPerWeek: aiDays, equipment });
+      setPreview({
+        plan: {
+          name: plan.name,
+          days: plan.workout_days.map((day) => ({
+            name: day.name,
+            exercises: day.exercises.map((exercise) => ({
+              name: exercise.name,
+              sets: exercise.sets,
+              reps: exercise.reps,
+              weightKg: exercise.weight_kg,
+              restSeconds: exercise.rest_seconds,
+              notes: exercise.notes,
+            })),
+          })),
+        },
+        saved: true,
+        firstDayId: plan.workout_days[0]?.id ?? null,
+      });
+      setMode("ai-result");
+    } catch (err) {
+      setError(aiErrorMessage(err));
+      setMode("ai");
+    }
   }
 
-  function handleApplyAi() {
-    // Stub: l'anteprima resta locale finché la generazione non è collegata.
-    setError("Salvataggio non ancora collegato: per ora crea il giorno in manuale.");
+  /**
+   * Chiusura della conferma: la scheda generata è già sul server (basta
+   * aprirla), quella importata va ancora salvata (piano → giorni → esercizi).
+   */
+  async function handleApplyPreview() {
+    if (!preview || saving) return;
+    setError(null);
+    if (preview.saved) {
+      if (preview.firstDayId) onDone(preview.firstDayId);
+      handleClose();
+      return;
+    }
+    setSaving(true);
+    try {
+      const { firstDayId } = await savePlan.mutateAsync({
+        name: preview.plan.name,
+        source: "upload",
+        days: preview.plan.days.map((day) => ({
+          name: day.name,
+          exercises: day.exercises.map((exercise) => ({
+            name: exercise.name,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            weightKg: exercise.weightKg ?? 0,
+            restSeconds: exercise.restSeconds,
+            notes: exercise.notes,
+          })),
+        })),
+      });
+      onDone(firstDayId);
+      handleClose();
+    } catch (err) {
+      setError(isApiError(err) ? err.message : "Salvataggio non riuscito: controlla la connessione.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function goBack() {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    // Una richiesta in corso non si interrompe: aspetta il risultato.
+    if (busy) return;
     if (mode === "ai" && aiStep > 0) {
       setAiStep((step) => step - 1);
       return;
@@ -402,6 +513,7 @@ export function CreateWorkoutModal({
   function resetFormState() {
     setMode("menu");
     setError(null);
+    setSaving(false);
     setDayOfWeek("monday");
     setTrainingKey("push");
     setExercises(getDefaultExercises("push").map(toFormExercise));
@@ -411,16 +523,51 @@ export function CreateWorkoutModal({
     setAiLevel("intermedio");
     setAiDays(4);
     setAiEquipment(["palestra"]);
-    setAiDraft(null);
+    setPreview(null);
   }
 
   function handleClose() {
-    if (timerRef.current) clearTimeout(timerRef.current);
     resetFormState();
     onClose();
   }
 
   const title = MODE_TITLES[mode];
+
+  /**
+   * Conferma comune a file e AI: giorni con esercizi, serie e ripetizioni.
+   * Stessa forma per entrambi i flussi, così la lettura resta fedele a ciò
+   * che il modello ha estratto o generato.
+   */
+  const previewSection = preview ? (
+    <View className="gap-2">
+      {preview.plan.days.map((day, index) => (
+        <View
+          key={`${day.name}-${index}`}
+          className="rounded-xl border border-border bg-background/40 p-3"
+        >
+          <View className="flex-row items-center gap-2">
+            <Text className="h-6 w-6 text-center font-inter-semibold text-xs text-muted">
+              {index + 1}
+            </Text>
+            <Text className="flex-1 font-inter-semibold text-sm text-foreground">
+              {day.name}
+            </Text>
+            <Text className="font-sans text-xs text-muted">
+              {day.exercises.length} esercizi
+            </Text>
+          </View>
+          <Text className="mt-1 pl-8 font-sans text-xs text-muted" numberOfLines={2}>
+            {day.exercises.length === 0
+              ? "Nessun esercizio"
+              : `${day.exercises
+                  .slice(0, 4)
+                  .map((exercise) => `${exercise.name} ${exercise.sets}×${exercise.reps}`)
+                  .join(" · ")}${day.exercises.length > 4 ? " …" : ""}`}
+          </Text>
+        </View>
+      ))}
+    </View>
+  ) : null;
 
   return (
     <Modal
@@ -446,7 +593,7 @@ export function CreateWorkoutModal({
           >
             {/* Header */}
             <View className="flex-row items-center gap-1 border-b border-border px-3 py-2">
-              {mode !== "menu" ? (
+              {mode !== "menu" && !busy ? (
                 <Pressable
                   onPress={goBack}
                   accessibilityRole="button"
@@ -483,13 +630,13 @@ export function CreateWorkoutModal({
                   <MenuOption
                     icon={<FileText size={22} color="#22C55E" strokeWidth={2.2} />}
                     title="Carica file esistente"
-                    description="PDF o foto della tua scheda (per ora elaborazione simulata)."
+                    description="PDF o foto della scheda: l’AI la legge e la mostra da confermare. Funzione premium."
                     onPress={() => setMode("upload")}
                   />
                   <MenuOption
                     icon={<Sparkles size={22} color="#38BDF8" strokeWidth={2.2} />}
                     title="Genera con AI"
-                    description="Rispondi a 4 domande: la scheda si compone da sola."
+                    description="Rispondi a 4 domande: la scheda si compone e si salva da sola. Funzione premium."
                     onPress={() => setMode("ai")}
                   />
                 </View>
@@ -656,8 +803,9 @@ export function CreateWorkoutModal({
               {mode === "upload" ? (
                 <>
                   <Text className="font-sans text-sm leading-5 text-muted">
-                    Seleziona un file PDF o una foto della tua scheda: verrà analizzata per
-                    estrarre giorni, esercizi e pesi (elaborazione AI in arrivo).
+                    Seleziona un file PDF o una foto della tua scheda: l’AI ne estrae giorni,
+                    esercizi e pesi e te li mostra qui per conferma, senza salvare nulla.
+                    Funzione premium.
                   </Text>
                   <Pressable
                     onPress={handlePickFile}
@@ -683,37 +831,43 @@ export function CreateWorkoutModal({
                     <Text className="font-sans text-sm text-muted">{fileName}</Text>
                   ) : null}
                   <Text className="text-center font-sans text-sm leading-5 text-muted">
-                    Estrazione di giorni, esercizi e pesi in corso (mock: il collegamento
-                    all’AI arriverà in una prossima versione).
+                    Estrazione di giorni, esercizi e pesi in corso: può volerci qualche
+                    decina di secondi.
                   </Text>
                 </View>
               ) : null}
 
-              {mode === "upload-result" ? (
+              {mode === "upload-result" && preview ? (
                 <>
                   <View className="items-center gap-3 py-2">
                     <View className="h-14 w-14 items-center justify-center rounded-full bg-accent/15">
                       <Check size={26} color="#22C55E" strokeWidth={2.5} />
                     </View>
                     <Text className="font-inter-bold text-lg text-foreground">
-                      Analisi completata (mock)
+                      Scheda letta dal file
                     </Text>
                     {fileName ? (
                       <Text className="font-sans text-sm text-muted">{fileName}</Text>
                     ) : null}
-                    <View className="w-full rounded-xl border border-border bg-background/40 p-3">
-                      <Text className="font-inter-semibold text-sm text-foreground">
-                        Giorno importato
-                      </Text>
-                      <Text className="mt-0.5 font-sans text-xs text-muted">
-                        Misto · 4 esercizi rilevati
-                      </Text>
-                    </View>
                     <Text className="text-center font-sans text-xs text-muted">
-                      Anteprima simulata: la conversione reale verrà collegata all’AI.
+                      Controlla giorni ed esercizi prima di salvare: nomi, serie e pesi sono
+                      quelli letti dal documento.
                     </Text>
                   </View>
-                  <PrimaryButton label="Aggiungi alla scheda" onPress={handleApplyImported} />
+
+                  <View className="gap-1">
+                    <Text className="font-inter-bold text-xl text-foreground">
+                      {preview.plan.name}
+                    </Text>
+                  </View>
+
+                  {previewSection}
+
+                  <PrimaryButton
+                    label={saving ? "Salvataggio…" : "Aggiungi alla scheda"}
+                    onPress={handleApplyPreview}
+                    disabled={saving}
+                  />
                 </>
               ) : null}
 
@@ -841,50 +995,32 @@ export function CreateWorkoutModal({
                     Generazione della scheda…
                   </Text>
                   <Text className="text-center font-sans text-sm leading-5 text-muted">
-                    Stiamo componendo i giorni in base a obiettivo, livello e attrezzatura
-                    (risultato simulato, AI in arrivo).
+                    Stiamo componendo i giorni in base a obiettivo, livello e attrezzatura:
+                    può volerci qualche decina di secondi.
                   </Text>
                 </View>
               ) : null}
 
-              {mode === "ai-result" && aiDraft ? (
+              {mode === "ai-result" && preview ? (
                 <>
                   <View className="gap-1">
-                    <Text className="font-inter-bold text-xl text-foreground">{aiDraft.name}</Text>
+                    <Text className="font-inter-bold text-xl text-foreground">
+                      {preview.plan.name}
+                    </Text>
                     <Text className="font-sans text-sm text-muted">
                       {AI_GOAL_OPTIONS.find((g) => g.key === aiGoal)?.label} ·{" "}
-                      {AI_LEVEL_OPTIONS.find((l) => l.key === aiLevel)?.label}
+                      {AI_LEVEL_OPTIONS.find((l) => l.key === aiLevel)?.label} · scheda
+                      salvata
                     </Text>
                   </View>
 
-                  <View className="gap-2">
-                    {aiDraft.days.map((day, index) => (
-                      <View
-                        key={day.id}
-                        className="rounded-xl border border-border bg-background/40 p-3"
-                      >
-                        <View className="flex-row items-center gap-2">
-                          <Text className="h-6 w-6 text-center font-inter-semibold text-xs text-muted">
-                            {index + 1}
-                          </Text>
-                          <Text className="flex-1 font-inter-semibold text-sm text-foreground">
-                            {day.name}
-                          </Text>
-                          <Text className="font-sans text-xs text-muted">
-                            {day.exercises.length} esercizi
-                          </Text>
-                        </View>
-                        <Text className="mt-1 pl-8 font-sans text-xs text-muted">
-                          {day.muscleGroups.join(" · ")}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
+                  {previewSection}
 
-                  <PrimaryButton label="Aggiungi alla scheda" onPress={handleApplyAi} />
+                  <PrimaryButton label="Vai alla scheda" onPress={handleApplyPreview} />
 
                   <Pressable
                     onPress={() => {
+                      setPreview(null);
                       setAiStep(0);
                       setMode("ai");
                     }}
@@ -895,7 +1031,7 @@ export function CreateWorkoutModal({
                   </Pressable>
                 </>
               ) : null}
-              {/* Errore comune a tutti i flussi (salvataggio o stub) */}
+              {/* Errore comune a tutti i flussi (salvataggio, lettura o generazione) */}
               {error ? (
                 <Text className="font-sans text-sm text-destructive">{error}</Text>
               ) : null}

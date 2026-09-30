@@ -16,6 +16,7 @@ import { Card } from "@/components/home/Card";
 import { MacroProgressBar } from "@/components/dieta/MacroProgressBar";
 import { MealSection } from "@/components/dieta/MealSection";
 import { AddFoodModal, type FoodSource } from "@/components/dieta/AddFoodModal";
+import { GenerateDietModal } from "@/components/dieta/GenerateDietModal";
 import { useIsStandalone } from "@/lib/useStandalone";
 import { isApiError } from "@/lib/api";
 import { useProfile } from "@/lib/profileQueries";
@@ -39,9 +40,9 @@ function errorMessage(error: unknown): string {
 /**
  * Dieta: diario del giorno (pasti + alimenti) e macro dal backend
  * (meals/food_items con React Query), target dal profilo (users), piano
- * attivo da diet-plans. Inserimento manuale e foto+AI (Gemini, con quota)
- * sono collegati; barcode, upload dieta e generazione della dieta restano
- * stub segnalati in UI.
+ * attivo da diet-plans. Tutte le inserzioni sono collegate: manuale,
+ * foto+AI, codice a barre, importazione di un file e generazione della
+ * dieta con AI (ultime due funzioni premium).
  */
 export default function DietaScreen() {
   const { width } = useWindowDimensions();
@@ -57,7 +58,7 @@ export default function DietaScreen() {
     Snack: false,
   });
   const [addMealType, setAddMealType] = useState<MealType | null>(null);
-  const [aiNotice, setAiNotice] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Editing state
@@ -189,8 +190,7 @@ export default function DietaScreen() {
   }
 
   function handleGeneratePress() {
-    // Generazione AI ancora stub: nessuna chiamata, solo avviso esplicito.
-    setAiNotice(true);
+    setGenerateOpen(true);
   }
 
   const planCard = activePlan ? (
@@ -281,15 +281,6 @@ export default function DietaScreen() {
     </View>
   );
 
-  const aiStubNotice = aiNotice ? (
-    <Card className="gap-1 border border-border p-4">
-      <Text className="font-inter-semibold text-sm text-foreground">Generazione AI non ancora disponibile</Text>
-      <Text className="font-sans text-sm leading-5 text-muted">
-        È ancora uno stub in app: la generazione della dieta esiste sul backend (funzione premium) ma il flusso di compilazione non è ancora collegato. Nel frattempo puoi comporre la giornata con l’inserimento manuale o con la foto pasto.
-      </Text>
-    </Card>
-  ) : null;
-
   const saveErrorBanner = saveError ? (
     <Card className="gap-1 p-4">
       <Text className="font-inter-semibold text-sm text-destructive">Operazione non riuscita</Text>
@@ -349,7 +340,6 @@ export default function DietaScreen() {
                 <View className="gap-3 pt-0">{meals.slice(2).map(mealSection)}</View>
               </View>
               {generateButton}
-              {aiStubNotice}
             </View>
           </View>
         ) : (
@@ -357,7 +347,6 @@ export default function DietaScreen() {
             {macroCard}
             {mealsSection}
             {generateButton}
-            {aiStubNotice}
           </>
         )}
       </View>
@@ -394,8 +383,12 @@ export default function DietaScreen() {
         {body}
       </ScrollView>
 
-      {/* Modal aggiunta alimento (manuale e foto+AI reali; barcode/upload = stub) */}
+      {/* Modal aggiunta alimento (manuale, foto+AI, barcode e file collegati) */}
       <AddFoodModal visible={Boolean(addMealType)} mealType={addMealType} onClose={() => setAddMealType(null)} onAdd={handleAddFood} />
+
+      {/* Modal generazione dieta (premium): montato solo quando aperto,
+          così ogni apertura riparte dal form pulito */}
+      {generateOpen ? <GenerateDietModal visible onClose={() => setGenerateOpen(false)} /> : null}
 
       {/* Modal modifica quantità */}
       <Modal visible={Boolean(editing)} transparent animationType={Platform.OS === "web" ? "none" : "fade"} onRequestClose={() => setEditing(null)} statusBarTranslucent>
