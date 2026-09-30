@@ -1,6 +1,7 @@
 import { Platform, StyleSheet, type ColorValue } from "react-native";
 import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Dumbbell,
   Home,
@@ -46,6 +47,19 @@ const TAB_ACTIVE = "#F97316";
 const TAB_INACTIVE = "#94A3B8";
 const ICON_STROKE = 2.2;
 
+/**
+ * Altezza della barra in pixel **al netto degli inset** (la variante
+ * 'uikit' del fork usa 49px fissi).
+ *
+ * Il contenitore di ogni tab è un flex-column di 39px utili (49 − padding
+ * 5+5), mentre servono 52: icona 28 + etichetta 14 + padding 10.
+ * Flexbox restringeva quindi l'etichetta da 14px a 10px e, con
+ * `numberOfLines={1}` (overflow hidden), la parte inferiore del testo
+ * veniva tagliata. Con 54px c'è aria sufficiente; gli inset inferiori
+ * vanno sommati perché il fork li sottrae dall'altezza dichiarata.
+ */
+const TAB_BAR_HEIGHT = 54;
+
 type TabIconProps = { focused: boolean; color: ColorValue; size: number };
 
 /** Render prop `tabBarIcon` a identità stabile (definita a livello di modulo). */
@@ -64,6 +78,9 @@ const renderTabIcon = (Icon: LucideIcon) => {
  * hairline superiore, safe area gestita dal fork.
  */
 function MaterialTabs() {
+  // Gli inset inferiori (gesture bar Android, 0 su web) vengono sottratti
+  // dall'altezza dichiarata: vanno sommati per non tagliare le etichette.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -75,6 +92,7 @@ function MaterialTabs() {
           backgroundColor: BAR_BG,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: BAR_BORDER,
+          height: TAB_BAR_HEIGHT + Math.max(insets.bottom, 0),
         },
         tabBarLabelStyle: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
       }}
