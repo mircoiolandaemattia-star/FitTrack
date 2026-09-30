@@ -299,7 +299,11 @@ Anche il **barcode** è collegato: Dieta → "Codice a barre" chiama
 `GET /api/food-items/lookup`, dove il backend fa da proxy a **Open Food
 Facts** (il PWA non dipende dal CORS del terzo e l'API esterna resta nascosta
 nel server). I valori arrivano **per 100 g**: il modal li moltiplica per i
-grammi dichiarati e salva con `source: "barcode"`.
+grammi dichiarati e salva con `source: "barcode"`. Su **nativo** il codice si
+può anche **scansionare con la fotocamera** (`BarcodeScannerModal` con
+expo-camera: EAN-13/8, UPC, Code39/93/128 e ITF, permesso chiesto alla
+pressione del pulsante); nella PWA, dove non c'è un decoder utilizzabile,
+resta l'inserimento manuale.
 
 Le route che ricevono file (foto e PDF in base64) hanno un parser dedicato
 a 8 mb applicato solo a quel path: il resto dell'API resta vincolato a
