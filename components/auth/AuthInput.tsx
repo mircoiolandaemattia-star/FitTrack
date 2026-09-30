@@ -26,7 +26,10 @@ export function AuthInput({ icon, error, errorMessage, isPassword, secureTextEnt
           secureTextEntry={isSecure}
           placeholderTextColor="#64748B"
           className="flex-1 py-3.5 font-sans text-[15px] leading-5 text-foreground"
-          style={{ flex: 1 }}
+          // minWidth 0: senz'altro <input> non scende sotto la sua larghezza
+          // intrinseca (min-width auto del browser) e nella riga Nome+Cognome
+          // della registrazione sporgeva fino a far scrollare la pagina.
+          style={{ flex: 1, minWidth: 0 }}
         />
         {isPassword ? (
           <Pressable
