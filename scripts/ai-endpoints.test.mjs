@@ -11,7 +11,8 @@
  * 201 sui tre per l'utente premium, chiamata Gemini fallita che NON incrementa
  * ai_usage_log, salvataggi con source "ai" annidati, limiti di payload,
  * retry 503 sullo stesso modello, fallback 404 al modello successivo,
- * catena esaurita (nessun uso registrato) e 429 senza cambio modello.
+ * catena esaurita (nessun uso registrato) e quota 429 per modello
+ * (fallback sul modello con budget proprio).
  *
  * Uso:  node scripts/ai-endpoints.test.mjs [--no-build]
  * Richiede il Supabase locale attivo (npx supabase start) e le migrazioni
@@ -480,14 +481,29 @@ async function main() {
     check("catena esaurita → nessun uso registrato", usageAfterExhaust.body?.count === usageBeforeExhaust.body?.count, `${usageBeforeExhaust.body?.count} → ${usageAfterExhaust.body?.count}`);
 
     const callsBeforeRate = mock.calls;
-    mock.queue.push({ status: 429, body: { error: { code: 429, message: "quota esaurita" } } });
+    mock.queue.push(
+      { status: 429, body: { error: { code: 429, message: "quota esaurita" } } },
+      { status: 429, body: { error: { code: 429, message: "quota esaurita" } } },
+    );
     const rateLimited = await call(base, "POST", "/api/ai/meal-photo", {
       token: tokens.premium,
       body: { photo: "AAAA", mime_type: "image/jpeg" },
     });
-    check("429 → 429 GEMINI_RATE_LIMITED (nessun cambio modello)", rateLimited.status === 429 &&
+    check("429 su tutti i modelli → 429 GEMINI_RATE_LIMITED", rateLimited.status === 429 &&
       rateLimited.body?.error?.code === "GEMINI_RATE_LIMITED", rateLimited.text.slice(0, 300));
-    check("429 → una sola chiamata a Google", mock.calls - callsBeforeRate === 1, `chiamate: ${mock.calls - callsBeforeRate}`);
+    check("429 → un tentativo per modello, nessun retry sullo stesso", mock.calls - callsBeforeRate === 2 &&
+      mock.urls[mock.urls.length - 2]?.includes("modello-primario-test") &&
+      mock.urls[mock.urls.length - 1]?.includes("modello-fallback-test"), `chiamate: ${mock.calls - callsBeforeRate}`);
+
+    mock.queue.push(
+      { status: 429, body: { error: { code: 429, message: "quota esaurita" } } },
+      geminiJson(MEAL_PHOTO_DRAFT),
+    );
+    const rateFallback = await call(base, "POST", "/api/ai/meal-photo", {
+      token: tokens.premium,
+      body: { photo: "AAAA", mime_type: "image/jpeg" },
+    });
+    check("429 sul primario → quota del modello fallback libera → 201", rateFallback.status === 201, rateFallback.text.slice(0, 300));
   } finally {
     await prisma.users.deleteMany({ where: { id: { in: [freeId, free2Id, premiumId] } } }).catch(() => {});
     await prisma.$disconnect().catch(() => {});

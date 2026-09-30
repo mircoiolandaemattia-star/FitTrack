@@ -67,7 +67,7 @@ src/                      backend Express (vedi sezione Backend)
 prisma/                   schema Prisma + migrazioni (12 tabelle)
 scripts/smoke-api.py      smoke test HTTP del backend (221 test)
 scripts/e2e-client-flow.py flusso client end-to-end: signup → 404 → onboarding → scheda → sessione
-scripts/ai-endpoints.test.mjs test /api/ai/* con Gemini mock (45 test)
+scripts/ai-endpoints.test.mjs test /api/ai/* con Gemini mock (46 test)
 ```
 
 ## Flusso di navigazione
@@ -251,14 +251,15 @@ backend: mai in una variabile `EXPO_PUBLIC_*`, che finirebbe nel bundle del
 client. Senza chiave gli endpoint rispondono `503 GEMINI_NOT_CONFIGURED` e
 il resto dell'app continua a funzionare.
 
-Poiché il free tier di Google dà spesso `503 "high demand"` e ritira i
-modelli vecchi (`404`), il wrapper prova una **catena di modelli**: su `503`
+Poiché il free tier di Google dà spesso `503 "high demand"`, ritira i modelli
+vecchi (`404`) e applica la quota **per modello** (`429`, es. 20 richieste/giorno
+su `gemini-3.8-flash`), il wrapper prova una **catena di modelli**: su `503`
 ritenta lo stesso modello (`GEMINI_503_RETRIES`, default 1, con attesa
-`GEMINI_RETRY_DELAY_MS` crescente), su `404` o 503 esauriti passa al
+`GEMINI_RETRY_DELAY_MS` crescente), su `404`, `429` o 503 esauriti passa al
 fallback (`GEMINI_FALLBACK_MODELS`, default `gemini-3.5-flash-lite`, vuoto =
-nessun fallback). Tutti i tentativi stanno dentro un unico budget
-`GEMINI_TIMEOUT_MS` (default 45s). `429`, `400`, timeout e errori di rete
-non cambiano modello: non dipendono dal singolo modello e ritentare
+nessun fallback), che ha un budget proprio. Tutti i tentativi stanno dentro
+un unico budget `GEMINI_TIMEOUT_MS` (default 45s). `400`, timeout e errori di
+rete non cambiano modello: non dipendono dal singolo modello e ritentare
 aumenterebbe solo la latenza.
 
 Il gating legge `users.subscription_status` **ad ogni richiesta** dalla
@@ -309,7 +310,7 @@ npx supabase start                # DB locale (una volta)
 PORT=3000 npm start               # il client Prisma carica .env da solo
 python3 scripts/smoke-api.py      # 221/221 test
 python3 scripts/e2e-client-flow.py # 15/15 flusso client (richiede Supabase locale)
-node scripts/ai-endpoints.test.mjs # 45/45 test delle funzioni AI
+node scripts/ai-endpoints.test.mjs # 46/46 test delle funzioni AI
 ```
 
 Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da
@@ -327,8 +328,8 @@ le richieste con JWT reali e ripulisce tutto. Nessuna chiave Google e nessun
 server già avviato: copre quota free (sotto/sopra 2), premium senza limite,
 `403 PREMIUM_REQUIRED`, `201` sui tre endpoint premium, chiamata Gemini
 fallita che non incrementa `ai_usage_log`, i limiti di payload e la catena
-dei modelli (retry su 503, fallback su 404, catena esaurita, 429 senza
-cambio modello).
+dei modelli (retry su 503, fallback su 404, quota 429 per modello, catena
+esaurita).
 
 Senza `PORT` il server usa 3000; se mancano `DATABASE_URL`,
 `SUPABASE_JWT_SECRET`, `SUPABASE_JWKS_URL` o `ALLOWED_ORIGIN` (né `.env`)

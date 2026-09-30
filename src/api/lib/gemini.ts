@@ -21,14 +21,16 @@ import { HttpError } from "../errors";
  * - `GEMINI_BLOCKED`         502  richiesta bloccata dai filtri di Google
  * - `GEMINI_INVALID_RESPONSE`502  corpo non JSON, vuoto o non valido
  *
- * Affidabilità (l'API free tier dà spesso 503 "high demand" e Google
- * ritira i modelli vecchi con 404):
+ * Affidabilità (l'API free tier dà spesso 503 "high demand", Google ritira
+ * i modelli vecchi con 404 e la quota è **per modello** — es. "limit: 20,
+ * model: gemini-3.8-flash" — quindi un 429 su un modello non vale per gli
+ * altri):
  * - su **503** si ritenta lo stesso modello `GEMINI_503_RETRIES` volte
  *   (default 1) con attesa `GEMINI_RETRY_DELAY_MS` crescente;
- * - su **404** (modello ritirato) o 503 esauriti i tentativi si passa al
- *   modello successivo della catena `GEMINI_MODEL` + `GEMINI_FALLBACK_MODELS`
+ * - su **404**, **429** o 503 esauriti i tentativi si passa al modello
+ *   successivo della catena `GEMINI_MODEL` + `GEMINI_FALLBACK_MODELS`
  *   (default `gemini-3.5-flash-lite`; vuoto = nessun fallback);
- * - gli altri status (400/401/403/429/500) e i timeout/rete **non**
+ * - gli altri status (400/401/403/500) e i timeout/rete **non**
  *   cambiano modello: sono errori che riguardano la richiesta o la chiave,
  *   non il singolo modello, e ritentare aumenterebbe solo la latenza.
  */
@@ -128,15 +130,21 @@ function googleStatusError(status: number, body: string, model: string): HttpErr
   const quota = status === 429 ? quotaExceeded(body) : undefined;
   const details = { googleStatus: status, model, body: snippet(body), ...(quota ? { quota } : {}) };
   if (status === 429) {
-    // Il frammento di quota dice la finestra: con un limite giornaliero
-    // "riprova tra qualche minuto" sarebbe un consiglio sbagliato.
+    // Google indica talvolta l'attesa esatta ("Please retry in 50.4s"):
+    // è il consiglio migliore che abbiamo. In mancanza, se la quota è
+    // giornaliera (RPD, a mezzanotte Pacifico) non ha senso dire "tra
+    // qualche minuto".
+    const retryIn = quota ? /Please retry in (\d+(?:\.\d+)?)/.exec(quota) : null;
+    const seconds = retryIn ? Math.ceil(Number(retryIn[1])) : 0;
     const daily = quota !== undefined && /\bday\b|giornalier/i.test(quota);
     return new HttpError(
       429,
       "GEMINI_RATE_LIMITED",
-      daily
-        ? "Limite giornaliero di Gemini raggiunto: riprova domani."
-        : "Limite di richieste raggiunto su Gemini: riprova tra qualche minuto.",
+      seconds > 0
+        ? `Limite di richieste raggiunto su Gemini: riprova tra ${seconds} s.`
+        : daily
+          ? "Limite giornaliero di Gemini raggiunto: riprova domani."
+          : "Limite di richieste raggiunto su Gemini: riprova tra qualche minuto.",
       details,
     );
   }
@@ -266,16 +274,23 @@ export async function generateGemini<T = string>(request: GeminiRequest<T>): Pro
       if (status >= 200 && status < 300) break; // OK: esce dai tentativi
 
       const error = googleStatusError(status, raw, model);
-      if (status === 429) throw error; // quota Google: cambiare modello non aiuta
-      if (status !== 503 && status !== 404) throw error;
+      // 400/401/403/500/timeout: errori della richiesta o della chiave,
+      // cambiare modello non aiuta → subito fuori.
+      if (status !== 404 && status !== 429 && status !== 503) throw error;
 
-      // 503 "high demand" → ritenta lo stesso modello con backoff lineare
-      const delayMs = retryDelayMs * (attempt + 1);
-      if (status === 503 && attempt < retries503 && delayMs < deadline - Date.now()) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        continue;
+      // 503 "high demand" → ritenta lo stesso modello con backoff lineare.
+      // 404 (modello ritirato) e 429 (quota, che Google applica **per
+      // modello**: "limit: 20, model: gemini-3.8-flash") no: passano
+      // direttamente al modello successivo, che ha budget proprio, senza
+      // sprecare attese sul modello che ha appena rifiutato.
+      if (status === 503) {
+        const delayMs = retryDelayMs * (attempt + 1);
+        if (attempt < retries503 && delayMs < deadline - Date.now()) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
       }
-      lastError = error; // 404, o 503 esauriti: al prossimo modello
+      lastError = error; // al prossimo modello della catena
       break;
     }
     if (status >= 200 && status < 300) break;
