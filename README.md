@@ -448,6 +448,23 @@ con `API_BASE=""` e tutte le chiamate finiscono nei rewrite di `vercel.json`
 `Settings → Environment Variables` e verificare nel bundle che la costante
 `API_BASE` contenga `onrender.com`.
 
+### PWA (manifest e icone sulla home)
+
+`app/+html.tsx` è la shell HTML del web: oltre al tema ci mette i tag che
+rendono l'app una PWA — `<link rel="manifest">`, `apple-mobile-web-app-capable`,
+`mobile-web-app-capable`, `apple-touch-icon`, titolo e status bar. Senza di
+essi Safari apriva l'icona della home in una finestra **normale** (con la barra
+e le icone del browser) e come icona usava uno screenshot della pagina.
+
+Il manifest è `public/manifest.json` (`display: standalone`, `start_url` e
+`scope` su `/`); `expo export` lo copia nella radice di `dist/` insieme alle
+icone `icon-192.png`, `icon-512.png` e `apple-touch-icon.png`, ricavate da
+`assets/images/icon.png`.
+
+iOS memorizza icona e comportamento **al momento in cui si preme "Aggiungi a
+Schermata Home"**: dopo una modifica togliere l'icona e aggiungerla di nuovo,
+altrimenti resta la versione precedente.
+
 ### Conferma email (Supabase Auth)
 
 `Confirm email` resta **attiva** in produzione: il link nella mail verifica
