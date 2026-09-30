@@ -3,11 +3,13 @@ import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text,
 import { Barcode, Camera, Check, FileText, Images, PenLine, ScanLine, Sparkles, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import { Camera as ExpoCamera } from "expo-camera";
 import type { DietFoodDraft } from "@/types";
 import type { MealType } from "@/lib/dietaStore";
 import { aiErrorMessage, useAnalyzeMealPhoto, useReadFile, type AiFoodItem } from "@/lib/aiQueries";
 import { documentMimeType, DocumentReadError, readDocumentBase64 } from "@/lib/fileReader";
 import { foodLookupErrorMessage, useLookupBarcode, type BarcodeProduct } from "@/lib/foodLookup";
+import { BarcodeScannerModal } from "./BarcodeScannerModal";
 import { ManualFoodForm } from "./ManualFoodForm";
 
 type AddMode = "menu" | "photo" | "barcode" | "manual" | "upload";
@@ -116,6 +118,8 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
   const [barcodeProduct, setBarcodeProduct] = useState<BarcodeProduct | null>(null);
   const [barcodeQty, setBarcodeQty] = useState("100");
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  /** Scanner con la fotocamera (solo nativo, aperto dal pulsante). */
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const analyze = useAnalyzeMealPhoto();
   const readFile = useReadFile();
@@ -136,6 +140,7 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
     setBarcodeProduct(null);
     setBarcodeQty("100");
     setBarcodeError(null);
+    setScannerOpen(false);
     analyze.reset();
     readFile.reset();
     lookup.reset();
@@ -247,9 +252,13 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
     }
   }
 
-  /** Cerca il prodotto su Open Food Facts (chiamata passando dal backend). */
-  function handleLookupBarcode() {
-    const code = barcode.trim();
+  /**
+   * Cerca il prodotto su Open Food Facts (chiamata passando dal backend).
+   * La usano sia il campo manuale sia lo scanner della fotocamera.
+   */
+  function startBarcodeLookup(value: string) {
+    const code = value.trim();
+    setBarcode(code);
     setBarcodeError(null);
     setBarcodeProduct(null);
     if (code.length < 8 || code.length > 14 || !/^\d+$/.test(code)) {
@@ -259,6 +268,31 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
     lookup.mutate(code, {
       onError: (error) => setBarcodeError(foodLookupErrorMessage(error)),
     });
+  }
+
+  function handleLookupBarcode() {
+    startBarcodeLookup(barcode);
+  }
+
+  /** Fotocamera: chiede il permesso (come per la foto) e apre lo scanner. */
+  async function handleOpenScanner() {
+    setBarcodeError(null);
+    try {
+      const permission = await ExpoCamera.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setBarcodeError("Per scansionare il codice a barre serve il permesso di usare la fotocamera.");
+        return;
+      }
+      setScannerOpen(true);
+    } catch {
+      setBarcodeError("Non sono riuscito ad avviare la fotocamera.");
+    }
+  }
+
+  /** Codice letto: si chiude lo scanner e si cerca subito il prodotto. */
+  function handleScannerScan(code: string) {
+    setScannerOpen(false);
+    startBarcodeLookup(code);
   }
 
   function toggleItem(index: number) {
@@ -364,246 +398,270 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
     );
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
-      <View className="flex-1 justify-end bg-black/60">
-        <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
-          <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
-            {mode !== "menu" ? (
-              <Pressable onPress={handleBackToMenu} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
+    <>
+      <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
+            <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
+              {mode !== "menu" ? (
+                <Pressable onPress={handleBackToMenu} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
+                  <X size={20} color="#94A3B8" strokeWidth={2.2} />
+                </Pressable>
+              ) : null}
+              <Text className="flex-1 font-inter-bold text-base text-foreground" numberOfLines={1}>
+                {title}
+              </Text>
+              <Pressable onPress={handleClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
                 <X size={20} color="#94A3B8" strokeWidth={2.2} />
               </Pressable>
-            ) : null}
-            <Text className="flex-1 font-inter-bold text-base text-foreground" numberOfLines={1}>
-              {title}
-            </Text>
-            <Pressable onPress={handleClose} className="h-11 w-11 items-center justify-center rounded-lg active:opacity-60">
-              <X size={20} color="#94A3B8" strokeWidth={2.2} />
-            </Pressable>
-          </View>
+            </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 p-4 pb-8">
-            {mode === "menu" ? (
-              <View className="gap-3">
-                <MenuOption icon={<Camera size={22} color="#F97316" strokeWidth={2.2} />} title="Scatta foto" description="Foto del piatto + descrizione, l'AI stima le quantità." onPress={() => setMode("photo")} />
-                <MenuOption icon={<Barcode size={22} color="#22C55E" strokeWidth={2.2} />} title="Codice a barre" description="Cerca il prodotto per codice e indica i grammi che mangi." onPress={() => setMode("barcode")} />
-                <MenuOption icon={<FileText size={22} color="#38BDF8" strokeWidth={2.2} />} title="Carica dieta esistente" description="PDF o foto della dieta da importare." onPress={() => setMode("upload")} />
-                <MenuOption icon={<PenLine size={22} color="#A78BFA" strokeWidth={2.2} />} title="Inserimento manuale" description="Cerca tra 50+ alimenti italiani o inserisci a mano." onPress={() => setMode("manual")} />
-              </View>
-            ) : null}
-
-            {mode === "photo" ? (
-              <View className="gap-3">
-                <Text className="font-sans text-xs leading-4 text-muted">
-                  L’AI stima alimenti e quantità dalla foto: controlla il risultato prima di salvare. Nel piano free hai 2 analisi al giorno, con premium sono illimitate.
-                </Text>
-
-                {!photo ? (
-                  <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
-                    <View className="flex-row gap-2">
-                      {Platform.OS !== "web" ? (
-                        <Pressable onPress={handleTakePhoto} className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80">
-                          <Camera size={18} color="#0F172A" strokeWidth={2.2} />
-                          <Text className="font-inter-bold text-sm text-primary-foreground">Scatta foto</Text>
-                        </Pressable>
-                      ) : null}
-                      <Pressable onPress={handlePickLibrary} className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80">
-                        <Images size={18} color="#0F172A" strokeWidth={2.2} />
-                        <Text className="font-inter-bold text-sm text-primary-foreground">Scegli dalla galleria</Text>
-                      </Pressable>
-                    </View>
-                    <Text className="text-center font-sans text-xs text-muted">JPEG o PNG, meglio se il piatto è interamente inquadrato.</Text>
-                  </View>
-                ) : (
-                  <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
-                    <Image source={{ uri: photo.uri }} className="h-44 w-full rounded-xl" resizeMode="cover" />
-                    <View>
-                      <Text className="font-sans text-xs text-muted">Cosa hai mangiato? (facoltativo)</Text>
-                      <TextInput
-                        value={description}
-                        onChangeText={setDescription}
-                        placeholder="Es. pasta al ragù e un panino"
-                        placeholderTextColor="#64748B"
-                        className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 font-sans text-sm text-foreground"
-                        multiline
-                      />
-                    </View>
-                    <View className="flex-row gap-2">
-                      <Pressable onPress={() => setPhoto(null)} className="flex-1 items-center rounded-xl border border-border bg-background/60 py-3 active:opacity-80">
-                        <Text className="font-inter-semibold text-sm text-foreground">Cambia foto</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={handleAnalyze}
-                        disabled={isAnalyzing}
-                        className={`flex-1 flex-row items-center justify-center gap-2 rounded-xl py-3 ${isAnalyzing ? "bg-primary/40" : "bg-primary active:opacity-80"}`}
-                      >
-                        {isAnalyzing ? <ActivityIndicator size="small" color="#0F172A" /> : <Sparkles size={16} color="#0F172A" strokeWidth={2.2} />}
-                        <Text className="font-inter-bold text-sm text-primary-foreground">{isAnalyzing ? "Analisi…" : "Analizza con AI"}</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
-
-                {flowError ? (
-                  <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
-                    <Text className="font-inter-semibold text-sm text-destructive">Analisi non riuscita</Text>
-                    <Text className="font-sans text-sm leading-5 text-muted">{flowError}</Text>
-                  </View>
-                ) : null}
-
-                {itemsConfirm}
-              </View>
-            ) : null}
-
-            {mode === "barcode" ? (
-              <View className="gap-3">
-                <InfoPanel
-                  title="Cerca per codice a barre"
-                  description="Il prodotto arriva da Open Food Facts: controlla i valori nutrizionali e indica quanti grammi mangi."
-                />
-
-                <View className="flex-row gap-2">
-                  <TextInput
-                    value={barcode}
-                    onChangeText={setBarcode}
-                    placeholder="Es. 8000500310427"
-                    placeholderTextColor="#64748B"
-                    keyboardType="numeric"
-                    accessibilityLabel="Codice a barre"
-                    className="flex-1 rounded-lg border border-border bg-surface px-3 py-3 font-sans text-sm text-foreground"
-                    onSubmitEditing={handleLookupBarcode}
-                  />
-                  <Pressable
-                    onPress={handleLookupBarcode}
-                    disabled={isLookingUp}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cerca il prodotto"
-                    className={`flex-row items-center justify-center gap-2 rounded-lg px-4 ${isLookingUp ? "bg-primary/40" : "bg-primary active:opacity-80"}`}
-                  >
-                    {isLookingUp ? (
-                      <ActivityIndicator size="small" color="#0F172A" />
-                    ) : (
-                      <ScanLine size={16} color="#0F172A" strokeWidth={2.4} />
-                    )}
-                    <Text className="font-inter-bold text-sm text-primary-foreground">{isLookingUp ? "Ricerca…" : "Cerca"}</Text>
-                  </Pressable>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 p-4 pb-8">
+              {mode === "menu" ? (
+                <View className="gap-3">
+                  <MenuOption icon={<Camera size={22} color="#F97316" strokeWidth={2.2} />} title="Scatta foto" description="Foto del piatto + descrizione, l'AI stima le quantità." onPress={() => setMode("photo")} />
+                  <MenuOption icon={<Barcode size={22} color="#22C55E" strokeWidth={2.2} />} title="Codice a barre" description="Cerca il prodotto per codice e indica i grammi che mangi." onPress={() => setMode("barcode")} />
+                  <MenuOption icon={<FileText size={22} color="#38BDF8" strokeWidth={2.2} />} title="Carica dieta esistente" description="PDF o foto della dieta da importare." onPress={() => setMode("upload")} />
+                  <MenuOption icon={<PenLine size={22} color="#A78BFA" strokeWidth={2.2} />} title="Inserimento manuale" description="Cerca tra 50+ alimenti italiani o inserisci a mano." onPress={() => setMode("manual")} />
                 </View>
+              ) : null}
 
-                {barcodeError ? (
-                  <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
-                    <Text className="font-inter-semibold text-sm text-destructive">Ricerca non riuscita</Text>
-                    <Text className="font-sans text-sm leading-5 text-muted">{barcodeError}</Text>
-                  </View>
-                ) : null}
+              {mode === "photo" ? (
+                <View className="gap-3">
+                  <Text className="font-sans text-xs leading-4 text-muted">
+                    L’AI stima alimenti e quantità dalla foto: controlla il risultato prima di salvare. Nel piano free hai 2 analisi al giorno, con premium sono illimitate.
+                  </Text>
 
-                {barcodeProduct ? (
-                  <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
-                    <View>
-                      <Text className="font-inter-semibold text-base text-foreground" numberOfLines={2}>
-                        {barcodeProduct.name}
-                      </Text>
-                      <Text className="mt-0.5 font-sans text-xs text-muted">
-                        {[barcodeProduct.brand, barcodeProduct.barcode].filter(Boolean).join(" · ")}
-                      </Text>
+                  {!photo ? (
+                    <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
+                      <View className="flex-row gap-2">
+                        {Platform.OS !== "web" ? (
+                          <Pressable onPress={handleTakePhoto} className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80">
+                            <Camera size={18} color="#0F172A" strokeWidth={2.2} />
+                            <Text className="font-inter-bold text-sm text-primary-foreground">Scatta foto</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable onPress={handlePickLibrary} className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80">
+                          <Images size={18} color="#0F172A" strokeWidth={2.2} />
+                          <Text className="font-inter-bold text-sm text-primary-foreground">Scegli dalla galleria</Text>
+                        </Pressable>
+                      </View>
+                      <Text className="text-center font-sans text-xs text-muted">JPEG o PNG, meglio se il piatto è interamente inquadrato.</Text>
                     </View>
-
-                    <View>
-                      <Text className="font-sans text-xs text-muted">Quantità mangiata (g)</Text>
-                      <TextInput
-                        value={barcodeQty}
-                        onChangeText={setBarcodeQty}
-                        keyboardType="numeric"
-                        accessibilityLabel="Quantità in grammi"
-                        placeholder="100"
-                        placeholderTextColor="#64748B"
-                        className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 font-sans text-sm text-foreground"
-                      />
+                  ) : (
+                    <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
+                      <Image source={{ uri: photo.uri }} className="h-44 w-full rounded-xl" resizeMode="cover" />
+                      <View>
+                        <Text className="font-sans text-xs text-muted">Cosa hai mangiato? (facoltativo)</Text>
+                        <TextInput
+                          value={description}
+                          onChangeText={setDescription}
+                          placeholder="Es. pasta al ragù e un panino"
+                          placeholderTextColor="#64748B"
+                          className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 font-sans text-sm text-foreground"
+                          multiline
+                        />
+                      </View>
+                      <View className="flex-row gap-2">
+                        <Pressable onPress={() => setPhoto(null)} className="flex-1 items-center rounded-xl border border-border bg-background/60 py-3 active:opacity-80">
+                          <Text className="font-inter-semibold text-sm text-foreground">Cambia foto</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={handleAnalyze}
+                          disabled={isAnalyzing}
+                          className={`flex-1 flex-row items-center justify-center gap-2 rounded-xl py-3 ${isAnalyzing ? "bg-primary/40" : "bg-primary active:opacity-80"}`}
+                        >
+                          {isAnalyzing ? <ActivityIndicator size="small" color="#0F172A" /> : <Sparkles size={16} color="#0F172A" strokeWidth={2.2} />}
+                          <Text className="font-inter-bold text-sm text-primary-foreground">{isAnalyzing ? "Analisi…" : "Analizza con AI"}</Text>
+                        </Pressable>
+                      </View>
                     </View>
+                  )}
 
-                    {barcodeProduct.serving_g ? (
-                      <Pressable
-                        onPress={() => setBarcodeQty(String(barcodeProduct.serving_g))}
-                        accessibilityRole="button"
-                        className="self-start rounded-full border border-border bg-surface px-3 py-1.5 active:opacity-80"
-                      >
-                        <Text className="font-inter-semibold text-xs text-muted">
-                          Usa la porzione dichiarata ({barcodeProduct.serving_g} g)
-                        </Text>
-                      </Pressable>
-                    ) : null}
-
-                    <View className="rounded-xl border border-border bg-surface p-3">
-                      <Text className="font-inter-semibold text-sm text-foreground">
-                        {Math.round(barcodeProduct.calories * barcodeFactor)} kcal per {barcodeQuantity > 0 ? Math.round(barcodeQuantity) : 0} g
-                      </Text>
-                      <Text className="mt-0.5 font-sans text-xs text-muted">
-                        P {Math.round(barcodeProduct.protein_g * barcodeFactor * 10) / 10} · C{" "}
-                        {Math.round(barcodeProduct.carbs_g * barcodeFactor * 10) / 10} · G{" "}
-                        {Math.round(barcodeProduct.fat_g * barcodeFactor * 10) / 10} (valori per 100 g: {barcodeProduct.calories} kcal)
-                      </Text>
+                  {flowError ? (
+                    <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+                      <Text className="font-inter-semibold text-sm text-destructive">Analisi non riuscita</Text>
+                      <Text className="font-sans text-sm leading-5 text-muted">{flowError}</Text>
                     </View>
+                  ) : null}
 
-                    {barcodeProduct.notes ? (
-                      <Text className="font-sans text-xs leading-4 text-muted">{barcodeProduct.notes}</Text>
-                    ) : null}
+                  {itemsConfirm}
+                </View>
+              ) : null}
 
+              {mode === "barcode" ? (
+                <View className="gap-3">
+                  <InfoPanel
+                    title="Cerca per codice a barre"
+                    description="Il prodotto arriva da Open Food Facts: controlla i valori nutrizionali e indica quanti grammi mangi."
+                  />
+
+                  {Platform.OS !== "web" ? (
                     <Pressable
-                      onPress={handleAddBarcode}
-                      disabled={barcodeQuantity <= 0}
+                      onPress={() => void handleOpenScanner()}
                       accessibilityRole="button"
-                      className={`items-center rounded-xl py-3.5 ${barcodeQuantity <= 0 ? "bg-primary/40 opacity-60" : "bg-primary active:opacity-80"}`}
+                      accessibilityLabel="Scansiona il codice a barre con la fotocamera"
+                      className="flex-row items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80"
                     >
-                      <Text className="font-inter-bold text-base text-primary-foreground">
-                        {barcodeQuantity <= 0 ? "Indica quanti grammi mangi" : "Aggiungi al pasto"}
-                      </Text>
+                      <ScanLine size={18} color="#0F172A" strokeWidth={2.4} />
+                      <Text className="font-inter-bold text-sm text-primary-foreground">Scansiona con la fotocamera</Text>
+                    </Pressable>
+                  ) : null}
+
+                  <Text className="font-sans text-xs text-muted">
+                    {Platform.OS !== "web" ? "Oppure inserisci il codice a mano:" : "Inserisci il codice a barre del prodotto:"}
+                  </Text>
+
+                  <View className="flex-row gap-2">
+                    <TextInput
+                      value={barcode}
+                      onChangeText={setBarcode}
+                      placeholder="Es. 8000500310427"
+                      placeholderTextColor="#64748B"
+                      keyboardType="numeric"
+                      accessibilityLabel="Codice a barre"
+                      className="flex-1 rounded-lg border border-border bg-surface px-3 py-3 font-sans text-sm text-foreground"
+                      onSubmitEditing={handleLookupBarcode}
+                    />
+                    <Pressable
+                      onPress={handleLookupBarcode}
+                      disabled={isLookingUp}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cerca il prodotto"
+                      className={`flex-row items-center justify-center gap-2 rounded-lg px-4 ${isLookingUp ? "bg-primary/40" : "bg-primary active:opacity-80"}`}
+                    >
+                      {isLookingUp ? (
+                        <ActivityIndicator size="small" color="#0F172A" />
+                      ) : (
+                        <ScanLine size={16} color="#0F172A" strokeWidth={2.4} />
+                      )}
+                      <Text className="font-inter-bold text-sm text-primary-foreground">{isLookingUp ? "Ricerca…" : "Cerca"}</Text>
                     </Pressable>
                   </View>
-                ) : null}
-              </View>
-            ) : null}
 
-            {mode === "upload" ? (
-              <View className="gap-3">
-                <InfoPanel
-                  title="Importa una dieta esistente"
-                  description="Scegli il PDF o la foto della dieta: l’AI ne estrae gli alimenti e li elenca qui sopra per conferma, senza salvare nulla. Funzione premium."
-                />
+                  {barcodeError ? (
+                    <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+                      <Text className="font-inter-semibold text-sm text-destructive">Ricerca non riuscita</Text>
+                      <Text className="font-sans text-sm leading-5 text-muted">{barcodeError}</Text>
+                    </View>
+                  ) : null}
 
-                <Pressable
-                  onPress={handlePickDocument}
-                  disabled={isReadingFile}
-                  accessibilityRole="button"
-                  accessibilityLabel="Scegli un file PDF o una foto della dieta"
-                  className={`flex-row items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-background/40 py-8 ${isReadingFile ? "opacity-60" : "active:opacity-80"}`}
-                >
-                  {isReadingFile ? (
-                    <ActivityIndicator size="small" color="#F97316" />
-                  ) : (
-                    <FileText size={24} color="#F97316" strokeWidth={2.2} />
-                  )}
-                  <Text className="font-inter-semibold text-sm text-foreground">
-                    {isReadingFile ? "Lettura con AI…" : items ? "Scegli un altro file" : "Scegli file (PDF o foto)"}
-                  </Text>
-                </Pressable>
+                  {barcodeProduct ? (
+                    <View className="gap-3 rounded-2xl border border-border bg-background/40 p-4">
+                      <View>
+                        <Text className="font-inter-semibold text-base text-foreground" numberOfLines={2}>
+                          {barcodeProduct.name}
+                        </Text>
+                        <Text className="mt-0.5 font-sans text-xs text-muted">
+                          {[barcodeProduct.brand, barcodeProduct.barcode].filter(Boolean).join(" · ")}
+                        </Text>
+                      </View>
 
-                {isReadingFile && documentName ? (
-                  <Text className="text-center font-sans text-xs text-muted">{documentName}</Text>
-                ) : null}
+                      <View>
+                        <Text className="font-sans text-xs text-muted">Quantità mangiata (g)</Text>
+                        <TextInput
+                          value={barcodeQty}
+                          onChangeText={setBarcodeQty}
+                          keyboardType="numeric"
+                          accessibilityLabel="Quantità in grammi"
+                          placeholder="100"
+                          placeholderTextColor="#64748B"
+                          className="mt-1 rounded-lg border border-border bg-surface px-3 py-2.5 font-sans text-sm text-foreground"
+                        />
+                      </View>
 
-                {flowError ? (
-                  <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
-                    <Text className="font-inter-semibold text-sm text-destructive">Importazione non riuscita</Text>
-                    <Text className="font-sans text-sm leading-5 text-muted">{flowError}</Text>
-                  </View>
-                ) : null}
+                      {barcodeProduct.serving_g ? (
+                        <Pressable
+                          onPress={() => setBarcodeQty(String(barcodeProduct.serving_g))}
+                          accessibilityRole="button"
+                          className="self-start rounded-full border border-border bg-surface px-3 py-1.5 active:opacity-80"
+                        >
+                          <Text className="font-inter-semibold text-xs text-muted">
+                            Usa la porzione dichiarata ({barcodeProduct.serving_g} g)
+                          </Text>
+                        </Pressable>
+                      ) : null}
 
-                {itemsConfirm}
-              </View>
-            ) : null}
+                      <View className="rounded-xl border border-border bg-surface p-3">
+                        <Text className="font-inter-semibold text-sm text-foreground">
+                          {Math.round(barcodeProduct.calories * barcodeFactor)} kcal per {barcodeQuantity > 0 ? Math.round(barcodeQuantity) : 0} g
+                        </Text>
+                        <Text className="mt-0.5 font-sans text-xs text-muted">
+                          P {Math.round(barcodeProduct.protein_g * barcodeFactor * 10) / 10} · C{" "}
+                          {Math.round(barcodeProduct.carbs_g * barcodeFactor * 10) / 10} · G{" "}
+                          {Math.round(barcodeProduct.fat_g * barcodeFactor * 10) / 10} (valori per 100 g: {barcodeProduct.calories} kcal)
+                        </Text>
+                      </View>
 
-            {mode === "manual" ? <ManualFoodForm onAdd={(draft) => handleAdd([draft], "manual")} /> : null}
-          </ScrollView>
+                      {barcodeProduct.notes ? (
+                        <Text className="font-sans text-xs leading-4 text-muted">{barcodeProduct.notes}</Text>
+                      ) : null}
+
+                      <Pressable
+                        onPress={handleAddBarcode}
+                        disabled={barcodeQuantity <= 0}
+                        accessibilityRole="button"
+                        className={`items-center rounded-xl py-3.5 ${barcodeQuantity <= 0 ? "bg-primary/40 opacity-60" : "bg-primary active:opacity-80"}`}
+                      >
+                        <Text className="font-inter-bold text-base text-primary-foreground">
+                          {barcodeQuantity <= 0 ? "Indica quanti grammi mangi" : "Aggiungi al pasto"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {mode === "upload" ? (
+                <View className="gap-3">
+                  <InfoPanel
+                    title="Importa una dieta esistente"
+                    description="Scegli il PDF o la foto della dieta: l’AI ne estrae gli alimenti e li elenca qui sopra per conferma, senza salvare nulla. Funzione premium."
+                  />
+
+                  <Pressable
+                    onPress={handlePickDocument}
+                    disabled={isReadingFile}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scegli un file PDF o una foto della dieta"
+                    className={`flex-row items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-background/40 py-8 ${isReadingFile ? "opacity-60" : "active:opacity-80"}`}
+                  >
+                    {isReadingFile ? (
+                      <ActivityIndicator size="small" color="#F97316" />
+                    ) : (
+                      <FileText size={24} color="#F97316" strokeWidth={2.2} />
+                    )}
+                    <Text className="font-inter-semibold text-sm text-foreground">
+                      {isReadingFile ? "Lettura con AI…" : items ? "Scegli un altro file" : "Scegli file (PDF o foto)"}
+                    </Text>
+                  </Pressable>
+
+                  {isReadingFile && documentName ? (
+                    <Text className="text-center font-sans text-xs text-muted">{documentName}</Text>
+                  ) : null}
+
+                  {flowError ? (
+                    <View className="gap-1 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+                      <Text className="font-inter-semibold text-sm text-destructive">Importazione non riuscita</Text>
+                      <Text className="font-sans text-sm leading-5 text-muted">{flowError}</Text>
+                    </View>
+                  ) : null}
+
+                  {itemsConfirm}
+                </View>
+              ) : null}
+
+              {mode === "manual" ? <ManualFoodForm onAdd={(draft) => handleAdd([draft], "manual")} /> : null}
+            </ScrollView>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Scanner a schermo intero: fuori dal Modal sopra per non annidare
+          due modali native. Chiuso non resta la fotocamera accesa. */}
+      {scannerOpen ? (
+        <BarcodeScannerModal visible onClose={() => setScannerOpen(false)} onScanned={handleScannerScan} />
+      ) : null}
+    </>
   );
 }

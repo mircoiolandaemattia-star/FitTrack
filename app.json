@@ -50,7 +50,20 @@
           "imageWidth": 76
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FitTrack usa la fotocamera per scattare foto dei pasti e dei progressi e per leggere i codici a barre dei prodotti."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FitTrack accede alle foto per allegare immagini dei pasti e dei progressi.",
+          "cameraPermission": "FitTrack usa la fotocamera per scattare foto dei pasti e dei progressi."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
