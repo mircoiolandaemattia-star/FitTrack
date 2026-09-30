@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { X } from "lucide-react-native";
 
 type Props = {
@@ -52,7 +52,7 @@ export function AddMeasurementModal({ visible, onClose, onSave }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
-      <View className="flex-1 justify-end bg-black/60">
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
             <Text className="flex-1 font-inter-bold text-lg text-foreground">Aggiungi misurazione</Text>
@@ -61,7 +61,7 @@ export function AddMeasurementModal({ visible, onClose, onSave }: Props) {
             </Pressable>
           </View>
 
-          <View className="gap-4 p-4 pb-8">
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 p-4 pb-8">
             <Text className="font-sans text-xs text-muted">Data: {todayLabel} (automatica)</Text>
 
             <View className="gap-1.5">
@@ -100,9 +100,9 @@ export function AddMeasurementModal({ visible, onClose, onSave }: Props) {
             <Pressable onPress={handleSave} className="items-center rounded-xl bg-primary py-3.5 active:opacity-80">
               <Text className="font-inter-bold text-base text-primary-foreground">Salva</Text>
             </Pressable>
-          </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

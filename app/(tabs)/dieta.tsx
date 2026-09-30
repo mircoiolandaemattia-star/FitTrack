@@ -355,7 +355,12 @@ export default function DietaScreen() {
 
   return (
     <Screen>
-      <ScrollView className="flex-1" contentContainerClassName={`w-full gap-6 px-4 py-6 ${isWide ? "mx-auto max-w-5xl px-6" : ""}`}>
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName={`w-full gap-6 px-4 py-6 ${isWide ? "mx-auto max-w-5xl px-6" : ""}`}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {/* Header */}
         <View className="flex-row items-center justify-between">
           <Text className="font-inter-bold text-3xl text-foreground">Dieta</Text>

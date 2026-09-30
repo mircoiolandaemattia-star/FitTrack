@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Check, Sparkles, X } from "lucide-react-native";
 import { aiErrorMessage, useGenerateDiet, type AiGeneratedDietPlan } from "@/lib/aiQueries";
 
@@ -106,7 +106,7 @@ export function GenerateDietModal({ visible, onClose }: Props) {
       onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <View className="flex-1 justify-end bg-black/60">
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface">
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
             <Text className="flex-1 font-inter-bold text-base text-foreground">
@@ -257,7 +257,7 @@ export function GenerateDietModal({ visible, onClose }: Props) {
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

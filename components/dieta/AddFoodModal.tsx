@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Barcode, Camera, Check, FileText, Images, PenLine, ScanLine, Sparkles, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -395,7 +395,7 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
   return (
     <>
       <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
-        <View className="flex-1 justify-end bg-black/60">
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end bg-black/60">
           <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
             <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
               {mode !== "menu" ? (
@@ -657,7 +657,7 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
           {scannerOpen ? (
             <BarcodeScannerModal visible onClose={() => setScannerOpen(false)} onScanned={handleScannerScan} />
           ) : null}
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );

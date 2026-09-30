@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { X } from "lucide-react-native";
 import type { DayOfWeek } from "@/types";
 import { WEEKDAYS, dayLabel } from "@/lib/reminderQueries";
+import { ValueSlider } from "@/components/ui/ValueSlider";
 
 type Props = {
   visible: boolean;
@@ -51,7 +52,7 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType={Platform.OS === "web" ? "none" : "slide"} onRequestClose={handleClose} statusBarTranslucent>
-      <View className="flex-1 justify-end bg-black/60">
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end bg-black/60">
         <View className="max-h-[92%] w-full rounded-t-3xl border-t border-border bg-surface" style={{ maxHeight: "92%" }}>
           <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
             <Text className="flex-1 font-inter-bold text-lg text-foreground">Aggiungi promemoria</Text>
@@ -60,7 +61,7 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
             </Pressable>
           </View>
 
-          <View className="gap-4 p-4 pb-8">
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 p-4 pb-8">
             {/* Tipo */}
             <View className="gap-2">
               <Text className="font-inter-semibold text-sm text-foreground">Tipo</Text>
@@ -102,25 +103,39 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
               </View>
             </View>
 
-            {/* Orario */}
-            <View className="gap-2">
-              <Text className="font-inter-semibold text-sm text-foreground">Orario (HH:MM)</Text>
-              <TextInput
-                value={formatTime(timeDate)}
-                onChangeText={(t) => {
-                  const [hh, mm] = t.split(":").map((x) => parseInt(x, 10));
-                  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return;
-                  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return;
+            {/* Orario: barre trascinabili invece del campo testuale, l'orario
+                è leggibile a colpo d'occhio e un tap qualsiasi posiziona. */}
+            <View className="gap-3">
+              <View className="items-center gap-1 rounded-2xl border border-border bg-background/40 py-3">
+                <Text className="font-sans text-xs uppercase tracking-wide text-muted">Orario del promemoria</Text>
+                <Text className="font-inter-bold text-4xl text-primary">{formatTime(timeDate)}</Text>
+              </View>
+
+              <ValueSlider
+                label="Ore"
+                value={timeDate.getHours()}
+                min={0}
+                max={23}
+                ticks={["0", "6", "12", "18", "23"]}
+                onChange={(hours) => {
                   const d = new Date(timeDate);
-                  d.setHours(hh, mm);
+                  d.setHours(hours, timeDate.getMinutes(), 0, 0);
                   setTimeDate(d);
                 }}
-                placeholder="16:30"
-                placeholderTextColor="#64748B"
-                keyboardType={Platform.OS === "web" ? "default" : "numbers-and-punctuation"}
-                className="rounded-xl border border-border bg-background px-3 py-3 font-sans text-sm text-foreground"
               />
-              <Text className="font-sans text-xs text-muted">Formato 24h, es. 07:30 o 18:45</Text>
+
+              <ValueSlider
+                label="Minuti"
+                value={timeDate.getMinutes()}
+                min={0}
+                max={59}
+                ticks={["0", "15", "30", "45", "59"]}
+                onChange={(minutes) => {
+                  const d = new Date(timeDate);
+                  d.setHours(timeDate.getHours(), minutes, 0, 0);
+                  setTimeDate(d);
+                }}
+              />
             </View>
 
             {/* Messaggio */}
@@ -142,9 +157,9 @@ export function AddReminderModal({ visible, onClose, onSave }: Props) {
             >
               <Text className="font-inter-bold text-base text-primary-foreground">Salva</Text>
             </Pressable>
-          </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
