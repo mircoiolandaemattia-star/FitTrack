@@ -73,7 +73,7 @@ export async function countUsageToday(userId: string, feature: AiFeature): Promi
  * da chiamare **prima** di Gemini e solo per gli utenti free (il premium
  * non ha limiti, decide il chiamante).
  *
- * @returns usi di oggi (0 se la quota è appena sufficiente).
+ * @returns usi di oggi (0, 1, … finché non si raggiunge il limite).
  */
 export async function assertDailyQuota(
   userId: string,

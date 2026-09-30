@@ -127,8 +127,10 @@ export async function generateGemini<T = string>(request: GeminiRequest<T>): Pro
 
   const parts: Record<string, unknown>[] = [{ text: request.prompt }];
   for (const attachment of request.attachments ?? []) {
+    // Forma canonica (camelCase) della REST API di Google: `inlineData`
+    // con `mimeType` + `data`, la stessa che usa il riferimento ufficiale.
     parts.push({
-      inline_data: { mime_type: attachment.mimeType, data: attachment.data },
+      inlineData: { mimeType: attachment.mimeType, data: attachment.data },
     });
   }
 

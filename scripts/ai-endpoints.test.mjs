@@ -100,9 +100,23 @@ function startMockGemini() {
     let received = "";
     req.on("data", (chunk) => (received += chunk));
     req.on("end", () => {
+      // Sanity check del payload: un body che non è nemmeno una richiesta
+      // generateContent valida deve far fallire il test, non passare.
+      let parsed = null;
+      try {
+        parsed = JSON.parse(received);
+      } catch {
+        parsed = null;
+      }
+      const text = parsed?.contents?.[0]?.parts?.[0]?.text;
+      if (typeof text !== "string") {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "mock: payload generateContent non valido" } }));
+        return;
+      }
       const next = mock.queue.shift();
       if (!next) {
-        // Nessuna risposta preparata: errore rumoroso, non un successo finti
+        // Nessuna risposta preparata: errore rumoroso, non un successo finto
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: { message: "mock: nessuna risposta in coda" } }));
         return;
