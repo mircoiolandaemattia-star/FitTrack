@@ -59,6 +59,7 @@ lib/
   ├── supabase.ts         client Supabase (sessioni in AsyncStorage, guard SSR per il web)
   ├── storage.ts          helper AsyncStorage
   ├── profileQueries.ts   React Query: /users/me + creazione profilo (onboarding)
+  ├── aiQueries.ts        React Query: /ai/meal-photo (foto pasto Gemini)
   └── workoutQueries.ts   React Query: piani, dettaglio annidato, sessioni
 types/index.ts            modelli dati (User, Workout*, Diet*, ecc.)
 design-system/            documentazione design system (MASTER.md)
@@ -66,6 +67,7 @@ src/                      backend Express (vedi sezione Backend)
 prisma/                   schema Prisma + migrazioni (12 tabelle)
 scripts/smoke-api.py      smoke test HTTP del backend (221 test)
 scripts/e2e-client-flow.py flusso client end-to-end: signup → 404 → onboarding → scheda → sessione
+scripts/ai-endpoints.test.mjs test /api/ai/* con Gemini mock (36 test)
 ```
 
 ## Flusso di navigazione
@@ -117,7 +119,14 @@ src/
 │   ├── bodyMeasurements.ts CRUD body_measurements (almeno un campo)
 │   ├── progressPhotos.ts   lista + POST + DELETE (nessun PUT)
 │   ├── reminders.ts     CRUD reminders (time HH:MM, days 0-6)
+│   ├── aiMealPhoto.ts   foto pasto → stime (free 2/giorno, premium illimitato)
+│   ├── aiWorkoutGenerate.ts scheda AI → workout_plans annidati (premium)
+│   ├── aiDietGenerate.ts dieta AI → diet_plans annidati (premium)
+│   ├── aiFileRead.ts    scheda/dieta da foto o PDF → bozza (premium, non salva)
 │   ├── aiUsageLog.ts    POST log + GET conteggio di oggi
+│   ├── lib/gemini.ts    wrapper unico Gemini: timeout, errori, parsing JSON
+│   ├── lib/aiAccess.ts  abbonamento letto a ogni richiesta, quota, log usi
+│   ├── lib/aiSchemas.ts forma delle risposte AI = tabelle di destinazione
 │   └── lib/tdee.ts      formula TDEE: unica, usata da POST e PUT /users
 ├── server/              Express: solo wrapper sottili
 │   ├── auth.ts          requireAuth: verifica JWT Supabase → req.user_id
@@ -137,6 +146,12 @@ Prisma) e `src/api/errors.ts` è l'unico punto che li traduce in status:
 | token assente/scaduto/non valido | 401 | `UNAUTHENTICATED` |
 | zod, input non valido | 400 | `VALIDATION_ERROR` |
 | body parser, JSON malformato | 400 | `INVALID_JSON` |
+| body parser, corpo oltre il limite | 413 | `PAYLOAD_TOO_LARGE` |
+| quota free esaurita (foto pasto) | 403 | `DAILY_LIMIT_REACHED` |
+| funzione premium con piano free | 403 | `PREMIUM_REQUIRED` |
+| Gemini: chiave assente | 503 | `GEMINI_NOT_CONFIGURED` |
+| Gemini: timeout / rate limit | 504 / 429 | `GEMINI_TIMEOUT` / `GEMINI_RATE_LIMITED` |
+| Gemini: errore, rete, risposta malformata | 502 | `GEMINI_ERROR` / `GEMINI_UNAVAILABLE` / `GEMINI_INVALID_RESPONSE` / `GEMINI_BLOCKED` / `GEMINI_AUTH_ERROR` |
 | `HttpError` | assegnato | `BAD_REQUEST` / `NOT_FOUND` / `ROUTE_NOT_FOUND` / `CONFLICT` / `EMAIL_MISSING` |
 | Prisma P2002 (unicità) | 409 | `UNIQUE_VIOLATION` |
 | Prisma P2003 (foreign key) | 422 | `FOREIGN_KEY_VIOLATION` |
@@ -207,7 +222,7 @@ percorso JWKS copre anche i progetti cloud con *Custom Access Token Keys*
 | POST | `/api/meals` | `201`, `diet_plan_id` opzionale |
 | GET / PUT / DELETE | `/api/meals/:id` | DELETE in cascata su food_items |
 | GET | `/api/food-items?meal_id=` | lista per pasto (obbligatorio), a cascata sull'utente |
-| POST | `/api/food-items` | `201`, `source` in `barcode\|photo\|manual\|upload` |
+| POST | `/api/food-items` | `201`, `source` in `barcode\|photo\|manual\|upload\|ai` |
 | GET / PUT / DELETE | `/api/food-items/:id` | proprietà a cascata pasto → utente |
 | GET | `/api/body-measurements?from=&to=` | range opzionale; POST richiede almeno un campo numerico |
 | POST / GET / PUT / DELETE | `/api/body-measurements[/:id]` | `201` + CRUD con scoping diretto |
@@ -217,11 +232,46 @@ percorso JWKS copre anche i progetti cloud con *Custom Access Token Keys*
 | GET / PUT / DELETE | `/api/reminders/:id` | CRUD con scoping diretto |
 | POST | `/api/ai-usage-log` | log in append (feature enum), nessuna modifica/cancellazione |
 | GET | `/api/ai-usage-log/today?feature=` | usi di oggi di `req.user_id` → `{feature, count}` (limite piano free) |
+| POST | `/api/ai/meal-photo` | foto base64 + testo → `{items, notes, remaining_today}`; free 2/giorno, premium illimitato |
+| POST | `/api/ai/workout-generate` | obiettivo/giorni/attrezzatura → `workout_plans` (`source: "ai"`) con giorni + esercizi annidati — **premium** |
+| POST | `/api/ai/diet-generate` | obiettivo/allergie/pasti → `diet_plans` (`source: "ai"`) con pasti + alimenti annidati — **premium** |
+| POST | `/api/ai/file-read` | foto o PDF di scheda/dieta → bozza strutturata **senza salvare** — **premium** |
 
 Tutte le route `/api` richiedono `Authorization: Bearer <JWT Supabase>`.
 DELETE risponde `204` senza corpo; gli errori rispondono
 `{"error": {"code", "message", "details?"}}`. Ogni input (query, path, body)
 è validato con zod.
+
+### Funzioni AI (Google Gemini)
+
+Quattro endpoint sotto `/api/ai/`, tutti le chiamate al modello passano da
+**`src/api/lib/gemini.ts`** (timeout, traduzione degli errori, parsing e
+validazione JSON in un unico posto). La `GEMINI_API_KEY` sta **solo** nel
+backend: mai in una variabile `EXPO_PUBLIC_*`, che finirebbe nel bundle del
+client. Senza chiave gli endpoint rispondono `503 GEMINI_NOT_CONFIGURED` e
+il resto dell'app continua a funzionare.
+
+Il gating legge `users.subscription_status` **ad ogni richiesta** dalla
+tabella (niente valori cacheati lato client; il flag si cambia a mano da
+Supabase Studio, non c'è un sistema di pagamento):
+
+- `photo_meal` — free e premium; free con **limite 2 al giorno**, verificato
+  su `ai_usage_log` *prima* di chiamare Gemini, e `ai_usage_log` scritto
+  **solo dopo** una risposta valida: una chiamata fallita non consuma quota;
+- `workout_generation`, `diet_generation`, `file_upload` — solo premium,
+  altrimenti `403 PREMIUM_REQUIRED`; il log segue il salvataggio riuscito
+  (nessuno per `file-read`, che non scrive nulla).
+
+La risposta di `meal-photo` e `file-read` è una **bozza da confermare**: il
+salvataggio passa dai CRUD normali (`POST /food-items`, `/workout-plans`,
+`/diet-plans`), così l'utente può correggere le stime o gli errori di
+lettura. In app oggi è collegata la sola foto pasto (in Dieta → aggiungi
+alimento → Scatta foto); generazione scheda, generazione dieta e lettura
+file sono ancora stub lato client.
+
+Le route che ricevono file (foto e PDF in base64) hanno un parser dedicato
+a 8 mb applicato solo a quel path: il resto dell'API resta vincolato a
+1 mb.
 
 ### Variabili d'ambiente runtime
 
@@ -235,7 +285,8 @@ Solo nomi, i valori si impostano nel dashboard di Render (vedi `.env.example`):
   **ES256** emessi da Supabase Auth (quelli che manda l'app)
 - `ALLOWED_ORIGIN` — **obbligatoria**, origin abilitate al CORS separate da
   virgola (nessuna apertura a tutte le origini)
-- `GEMINI_API_KEY` — in seguito, feature AI (non ancora usata)
+- `GEMINI_API_KEY` — **obbligatoria per le feature AI** (`/api/ai/*`),
+  chiave di Google AI Studio: solo nel backend, mai nel bundle Expo
 - `RESEND_API_KEY` — in seguito, email transazionali (non ancora usata)
 
 `PORT` la fornisce Render (il server usa `process.env.PORT`, nessuna porta
@@ -248,6 +299,7 @@ npx supabase start                # DB locale (una volta)
 PORT=3000 npm start               # il client Prisma carica .env da solo
 python3 scripts/smoke-api.py      # 221/221 test
 python3 scripts/e2e-client-flow.py # 15/15 flusso client (richiede Supabase locale)
+node scripts/ai-endpoints.test.mjs # 36/36 test delle funzioni AI
 ```
 
 Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da
@@ -257,6 +309,14 @@ token **ES256 reale** preso da Supabase Auth e verificato via JWKS, e
 l'isolamento fra utenti. Lo script `e2e-client-flow.py` replica invece il
 flusso completo del client: signup → `404 /users/me` → onboarding → piano,
 giorno ed esercizi annidati → sessione → preflight CORS.
+
+`scripts/ai-endpoints.test.mjs` è autosufficiente: compila il backend, fa
+partire un **Gemini mock** locale (`GEMINI_API_BASE` punta a lui), monta
+l'app Express su una porta libera, crea utenti free/premium nel DB, esegue
+le richieste con JWT reali e ripulisce tutto. Nessuna chiave Google e nessun
+server già avviato: copre quota free (sotto/sopra 2), premium senza limite,
+`403 PREMIUM_REQUIRED`, `201` sui tre endpoint premium, chiamata Gemini
+fallita che non incrementa `ai_usage_log` e i limiti di payload.
 
 Senza `PORT` il server usa 3000; se mancano `DATABASE_URL`,
 `SUPABASE_JWT_SECRET`, `SUPABASE_JWKS_URL` o `ALLOWED_ORIGIN` (né `.env`)

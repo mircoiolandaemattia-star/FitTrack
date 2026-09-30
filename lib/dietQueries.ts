@@ -231,21 +231,26 @@ export function useDiaryDay(date: string): DiaryDay {
 
 /* -------------------------------- Mutations -------------------------------- */
 
-export type AddFoodInput = {
+export type AddFoodsInput = {
   date: string;
   mealType: MealType;
-  draft: DietFoodDraft;
+  /** Uno o più alimenti da aggiungere allo stesso pasto. */
+  drafts: DietFoodDraft[];
+  /** Provenienza scritta su `food_items.source` (default `"manual"`). */
+  source?: "barcode" | "photo" | "manual" | "upload" | "ai";
 };
 
 /**
- * Inserimento manuale reale: assicura che il pasto esista per la data
- * (`POST /meals` solo la prima volta) e ci appende l'alimento
- * (`POST /food-items`, `source: "manual"`).
+ * Inserimento reale nel diario: assicura che il pasto esista per la data
+ * (`POST /meals` solo la prima volta) e ci appende gli alimenti
+ * (`POST /food-items`, uno per draft). In serie e non in parallelo: i
+ * draft di una foto pasto devono finire tutti nello stesso pasto, senza
+ * che due richieste creino due pasti duplicati.
  */
-export function useAddFoodItem() {
+export function useAddFoodItems() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ date, mealType, draft }: AddFoodInput) => {
+    mutationFn: async ({ date, mealType, drafts, source }: AddFoodsInput) => {
       const meals = await api.get<ApiMeal[]>(`/meals?date=${date}`);
       const existing = meals.find(
         (meal) => meal.meal_type === MEAL_TYPE_TO_API[mealType],
@@ -256,18 +261,24 @@ export function useAddFoodItem() {
           meal_type: MEAL_TYPE_TO_API[mealType],
           date,
         }));
-      return api.post<ApiFoodItem>("/food-items", {
-        meal_id: meal.id,
-        name: draft.name,
-        quantity_g: draft.quantityG,
-        calories: Math.round(draft.calories),
-        protein_g: Math.round(draft.proteinG * 10) / 10,
-        carbs_g: Math.round(draft.carbsG * 10) / 10,
-        fat_g: Math.round(draft.fatsG * 10) / 10,
-        source: "manual",
-      });
+      const created: ApiFoodItem[] = [];
+      for (const draft of drafts) {
+        created.push(
+          await api.post<ApiFoodItem>("/food-items", {
+            meal_id: meal.id,
+            name: draft.name,
+            quantity_g: draft.quantityG,
+            calories: Math.round(draft.calories),
+            protein_g: Math.round(draft.proteinG * 10) / 10,
+            carbs_g: Math.round(draft.carbsG * 10) / 10,
+            fat_g: Math.round(draft.fatsG * 10) / 10,
+            source: source ?? "manual",
+          }),
+        );
+      }
+      return created;
     },
-    onSuccess: (_item, { date }) => {
+    onSuccess: (_items, { date }) => {
       // Il pasto può essere appena nato: ricarica lista e tutti gli alimenti.
       void queryClient.invalidateQueries({ queryKey: dietKeys.meals(date) });
       void queryClient.invalidateQueries({ queryKey: dietKeys.foodItemsAll });
