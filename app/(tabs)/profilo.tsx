@@ -146,27 +146,32 @@ export default function ProfiloScreen() {
     );
   }
 
-  function handleStartTrial() {
-    // La prova è gestita lato server (se c'è logica) oppure resta stub
-    // Qui non c'è endpoint dedicato: usiamo updateUser locale per UI
-    // ma il backend non ha trial — lo Stato lo gestisce il server via subscription_status
+  /**
+   * Nessun sistema di pagamento in questa versione: lo stato dell'abbonamento
+   * è il campo `users.subscription_status`, che l'amministratore attiva da
+   * Supabase Studio. Le tre azioni spiegano solo come funziona.
+   */
+  function subscriptionNotice(title: string) {
+    const status = profile?.subscription_status ?? "free";
     Alert.alert(
-      "Prova gratuita",
-      "La gestione delle prove è delegata al backend (non ancora implementata).",
+      title,
+      status === "premium"
+        ? "Il tuo account è già premium: tutti i contenuti sono sbloccati. Per modifiche o disdetta contatta il supporto."
+        : "In questa versione non c'è un portale di pagamento: l'abbonamento premium viene attivato manualmente dall'amministratore dell'app.",
       [{ text: "OK" }],
     );
+  }
+
+  function handleStartTrial() {
+    subscriptionNotice("Prova gratuita");
   }
 
   function handleConfirm() {
-    Alert.alert(
-      "Conferma abbonamento",
-      "Il pagamento reale non è ancora implementato (stub).",
-      [{ text: "OK" }],
-    );
+    subscriptionNotice("Conferma abbonamento");
   }
 
   function handleManage() {
-    Alert.alert("Abbonamento", "Portale di pagamento non ancora collegato (stub).", [{ text: "OK" }]);
+    subscriptionNotice("Abbonamento");
   }
 
   async function handleLogout() {

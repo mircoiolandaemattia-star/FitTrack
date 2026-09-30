@@ -59,7 +59,10 @@ lib/
   ├── supabase.ts         client Supabase (sessioni in AsyncStorage, guard SSR per il web)
   ├── storage.ts          helper AsyncStorage
   ├── profileQueries.ts   React Query: /users/me + creazione profilo (onboarding)
-  ├── aiQueries.ts        React Query: /ai/meal-photo (foto pasto Gemini)
+  ├── aiQueries.ts        React Query: /ai/meal-photo, workout-generate, diet-generate, file-read
+  ├── fileReader.ts       documento scelto → base64 + MIME per /ai/file-read (web e native)
+  ├── foodLookup.ts       React Query: /food-items/lookup (barcode via Open Food Facts)
+  ├── progressQueries.ts  React Query: misurazioni, foto (upload su Storage) e serie
   └── workoutQueries.ts   React Query: piani, dettaglio annidato, sessioni
 types/index.ts            modelli dati (User, Workout*, Diet*, ecc.)
 design-system/            documentazione design system (MASTER.md)
@@ -68,6 +71,7 @@ prisma/                   schema Prisma + migrazioni (12 tabelle)
 scripts/smoke-api.py      smoke test HTTP del backend (221 test)
 scripts/e2e-client-flow.py flusso client end-to-end: signup → 404 → onboarding → scheda → sessione
 scripts/ai-endpoints.test.mjs test /api/ai/* con Gemini mock (46 test)
+scripts/food-lookup.test.mjs test /food-items/lookup con Open Food Facts mock (16 test)
 ```
 
 ## Flusso di navigazione
@@ -223,6 +227,7 @@ percorso JWKS copre anche i progetti cloud con *Custom Access Token Keys*
 | GET / PUT / DELETE | `/api/meals/:id` | DELETE in cascata su food_items |
 | GET | `/api/food-items?meal_id=` | lista per pasto (obbligatorio), a cascata sull'utente |
 | POST | `/api/food-items` | `201`, `source` in `barcode\|photo\|manual\|upload\|ai` |
+| GET | `/api/food-items/lookup?barcode=` | proxy **Open Food Facts**: prodotto per codice a barre con valori **per 100 g** (`404 PRODUCT_NOT_FOUND`, `502 FOOD_FACTS_UNAVAILABLE`, cache 24h); registrata prima di `/food-items/:id` |
 | GET / PUT / DELETE | `/api/food-items/:id` | proprietà a cascata pasto → utente |
 | GET | `/api/body-measurements?from=&to=` | range opzionale; POST richiede almeno un campo numerico |
 | POST / GET / PUT / DELETE | `/api/body-measurements[/:id]` | `201` + CRUD con scoping diretto |
@@ -276,13 +281,47 @@ Supabase Studio, non c'è un sistema di pagamento):
 La risposta di `meal-photo` e `file-read` è una **bozza da confermare**: il
 salvataggio passa dai CRUD normali (`POST /food-items`, `/workout-plans`,
 `/diet-plans`), così l'utente può correggere le stime o gli errori di
-lettura. In app oggi è collegata la sola foto pasto (in Dieta → aggiungi
-alimento → Scatta foto); generazione scheda, generazione dieta e lettura
-file sono ancora stub lato client.
+lettura. `workout-generate` e `diet-generate` invece salvano loro stessi:
+in app basta invalidare la cache e mostrare il risultato.
+
+In app sono collegate tutte e quattro le route:
+
+- **foto pasto** → Dieta → aggiungi alimento → "Foto + AI" (free 2/giorno);
+- **generazione dieta** → Dieta → "Genera dieta con AI" (premium);
+- **generazione scheda** → Scheda → "Crea scheda" → "Genera con AI": il piano
+  è già sul server, la conferma lo apre e chiude il modal;
+- **lettura file** → Scheda → "Carica file" (kind `workout`) e Dieta →
+  "Importa una dieta" (kind `diet`): la bozza si mostra e si salva solo alla
+  conferma. `lib/fileReader.ts` legge il file come base64 sia su web (File
+  API) sia su native (`expo-file-system`).
+
+Anche il **barcode** è collegato: Dieta → "Codice a barre" chiama
+`GET /api/food-items/lookup`, dove il backend fa da proxy a **Open Food
+Facts** (il PWA non dipende dal CORS del terzo e l'API esterna resta nascosta
+nel server). I valori arrivano **per 100 g**: il modal li moltiplica per i
+grammi dichiarati e salva con `source: "barcode"`.
 
 Le route che ricevono file (foto e PDF in base64) hanno un parser dedicato
 a 8 mb applicato solo a quel path: il resto dell'API resta vincolato a
 1 mb.
+
+### Foto dei progressi (Supabase Storage)
+
+L'upload delle foto usa il bucket privato **`progress-photos`**, creato dalla
+migrazione `20260930103000_progress_photos_storage` (blocco difensivo: lo
+schema `storage` non esiste nel database shadow che Prisma usa per
+`migrate dev`). RLS: inserimento, lettura e cancellazione solo per il
+proprietario (`owner = auth.uid()`), soli formati JPEG/PNG/WebP e tetto a
+10 mb.
+
+`progress_photos.photo_url` conserva il **percorso** dentro il bucket (es.
+`<user-id>/2026-09-30-….jpg`), non un URL: `lib/progressQueries.ts` lo
+converte in URL firmati da un'ora (con cache e rigenerazione prima della
+scadenza) quando compila la griglia. Così le immagini restano private, le
+righe del database restano valide anche a fronte di URL scaduti e il backend
+non ha bisogno di credenziali storage. L'ordine di scrittura è **file →
+riga**: se `POST /api/progress-photos` fallisse resterebbe solo un file
+orfano nel bucket, mentre il caso inverso romperebbe la griglia.
 
 ### Variabili d'ambiente runtime
 
@@ -298,6 +337,9 @@ Solo nomi, i valori si impostano nel dashboard di Render (vedi `.env.example`):
   virgola (nessuna apertura a tutte le origini)
 - `GEMINI_API_KEY` — **obbligatoria per le feature AI** (`/api/ai/*`),
   chiave di Google AI Studio: solo nel backend, mai nel bundle Expo
+- `FOOD_FACTS_API_BASE`, `FOOD_FACTS_TIMEOUT_MS` — opzionali, override del
+  proxy barcode (`/api/food-items/lookup`): di default punta a Open Food
+  Facts con 8 secondi di timeout, senza chiave
 - `RESEND_API_KEY` — in seguito, email transazionali (non ancora usata)
 
 `PORT` la fornisce Render (il server usa `process.env.PORT`, nessuna porta
@@ -311,6 +353,7 @@ PORT=3000 npm start               # il client Prisma carica .env da solo
 python3 scripts/smoke-api.py      # 221/221 test
 python3 scripts/e2e-client-flow.py # 15/15 flusso client (richiede Supabase locale)
 node scripts/ai-endpoints.test.mjs # 46/46 test delle funzioni AI
+node scripts/food-lookup.test.mjs  # 16/16 lookup barcode (Open Food Facts mock)
 ```
 
 Lo smoke test **genera i suoi JWT** firmati con `SUPABASE_JWT_SECRET` (da
@@ -330,6 +373,12 @@ server già avviato: copre quota free (sotto/sopra 2), premium senza limite,
 fallita che non incrementa `ai_usage_log`, i limiti di payload e la catena
 dei modelli (retry su 503, fallback su 404, quota 429 per modello, catena
 esaurita).
+
+`scripts/food-lookup.test.mjs` usa lo stesso schema con un mock di **Open
+Food Facts** (`FOOD_FACTS_API_BASE` punta a lui, `FOOD_FACTS_TIMEOUT_MS` è
+corto per il test del timeout): copre auth, validazione del codice, mappatura
+per 100 g (nome italiano preferito), cache in memoria, prodotto ignoto,
+errore e timeout del servizio terzo. Non serve il database.
 
 Senza `PORT` il server usa 3000; se mancano `DATABASE_URL`,
 `SUPABASE_JWT_SECRET`, `SUPABASE_JWKS_URL` o `ALLOWED_ORIGIN` (né `.env`)
