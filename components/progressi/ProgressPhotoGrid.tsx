@@ -1,10 +1,11 @@
-import { Image, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { Camera, ImageIcon, Plus } from "lucide-react-native";
 import type { ProgressPhoto } from "@/types";
 
 type Props = {
   photos: ProgressPhoto[];
-  /** L'upload è ancora stub (serve Supabase Storage): notifica la schermata. */
+  /** Caricamento in corso su Supabase Storage: disattiva il ripremere. */
+  uploading?: boolean;
   onAdd: () => void;
   readOnly?: boolean;
 };
@@ -18,23 +19,31 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Griglia foto progressi: le foto arrivano da `GET /api/progress-photos`.
- * Il picker non è più collegato: premere "Aggiungi" notifica la schermata
- * che l'upload resta uno stub (richiede Supabase Storage).
+ * Griglia foto progressi: le foto arrivano da `GET /api/progress-photos`
+ * con URL firmati già risolti, e "Aggiungi" apre il picker (fotocamera o
+ * galleria) per caricare una nuova immagine sul bucket privato.
  */
-export function ProgressPhotoGrid({ photos, onAdd, readOnly = false }: Props) {
+export function ProgressPhotoGrid({ photos, onAdd, uploading = false, readOnly = false }: Props) {
   if (photos.length === 0) {
     return (
       <Pressable
         onPress={onAdd}
-        disabled={readOnly}
+        disabled={readOnly || uploading}
         className={`items-center gap-2 rounded-2xl border-2 border-dashed border-border bg-background/20 py-10 active:opacity-80 ${readOnly ? "opacity-60" : ""}`}
       >
         <View className="h-12 w-12 items-center justify-center rounded-full bg-surface">
-          <ImageIcon size={22} color="#64748B" strokeWidth={2.2} />
+          {uploading ? (
+            <ActivityIndicator size="small" color="#F97316" />
+          ) : (
+            <ImageIcon size={22} color="#64748B" strokeWidth={2.2} />
+          )}
         </View>
-        <Text className="font-inter-semibold text-sm text-foreground">Nessuna foto progresso</Text>
-        <Text className="font-sans text-xs text-muted">Tocca per aggiungerne una</Text>
+        <Text className="font-inter-semibold text-sm text-foreground">
+          {uploading ? "Caricamento in corso…" : "Nessuna foto progresso"}
+        </Text>
+        {!uploading ? (
+          <Text className="font-sans text-xs text-muted">Tocca per aggiungerne una</Text>
+        ) : null}
       </Pressable>
     );
   }
@@ -52,10 +61,22 @@ export function ProgressPhotoGrid({ photos, onAdd, readOnly = false }: Props) {
         ))}
       </View>
       {!readOnly ? (
-        <Pressable onPress={onAdd} className="flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-background/20 py-3 active:opacity-80">
-          <Plus size={16} color="#94A3B8" strokeWidth={2.2} />
-          <Camera size={16} color="#94A3B8" strokeWidth={2.2} />
-          <Text className="font-inter-semibold text-sm text-muted">Aggiungi foto</Text>
+        <Pressable
+          onPress={onAdd}
+          disabled={uploading}
+          className="flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-background/20 py-3 active:opacity-80"
+        >
+          {uploading ? (
+            <ActivityIndicator size="small" color="#F97316" />
+          ) : (
+            <>
+              <Plus size={16} color="#94A3B8" strokeWidth={2.2} />
+              <Camera size={16} color="#94A3B8" strokeWidth={2.2} />
+            </>
+          )}
+          <Text className="font-inter-semibold text-sm text-muted">
+            {uploading ? "Caricamento…" : "Aggiungi foto"}
+          </Text>
         </Pressable>
       ) : null}
     </View>

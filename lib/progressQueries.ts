@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, isApiError } from "./api";
+import { supabase } from "./supabase";
 import { useFoodQueries, useMealsInRange } from "./dietQueries";
 import type { ProgressPhoto, WorkoutSession } from "@/types";
 
@@ -12,7 +13,10 @@ import type { ProgressPhoto, WorkoutSession } from "@/types";
  *   usato da Scheda): nessun nuovo endpoint;
  * - grafico calorie: totali giornalieri dai meals/food_items del periodo
  *   (una query alimenti per pasto del periodo, come nel diario).
- * L'upload delle foto resta uno stub: richiede Supabase Storage.
+ *
+ * L'upload delle foto passa da Supabase Storage (`progress-photos`): in
+ * `photo_url` resta il percorso nel bucket e la griglia lo converte in
+ * URL firmati a ogni caricamento, così le immagini restano private.
  */
 
 /* --------------------------------- Periodo --------------------------------- */
@@ -89,6 +93,8 @@ export const progressKeys = {
   /** Prefisso per invalidare tutte le misurazioni (qualunque periodo). */
   measurementsAll: ["progress", "measurements"] as const,
   photos: (from: string, to: string) => ["progress", "photos", from, to] as const,
+  /** Prefisso per invalidare tutte le foto (qualunque periodo). */
+  photosAll: ["progress", "photos"] as const,
 };
 
 /** Gli errori HTTP 4xx sono risposte, non intoppi: mai in retry. */
@@ -117,12 +123,69 @@ function toProgressPhoto(row: ApiProgressPhoto): ProgressPhoto {
   };
 }
 
-/** Foto del periodo, mappate sul modello `ProgressPhoto` dell'app. */
+/* ------------------------------ Storage foto -------------------------------- */
+
+/**
+ * Bucket privato delle foto (migrazione `progress_photos_storage`).
+ * `photo_url` contiene il percorso dentro il bucket, non un URL: le
+ * immagini si aprono con URL firmati, così chi non è l'utente non legge
+ * nemmeno indovinando il percorso.
+ */
+const PROGRESS_BUCKET = "progress-photos";
+const SIGNED_URL_TTL_S = 3600;
+/** URL firmati già generati: si rigenerano quando stanno per scadere. */
+const signedUrlCache = new Map<string, { url: string; at: number }>();
+
+async function resolvePhotoUrl(pathOrUrl: string): Promise<string> {
+  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+  const cached = signedUrlCache.get(pathOrUrl);
+  if (cached && Date.now() - cached.at < (SIGNED_URL_TTL_S - 300) * 1000) return cached.url;
+  const { data, error } = await supabase.storage
+    .from(PROGRESS_BUCKET)
+    .createSignedUrl(pathOrUrl, SIGNED_URL_TTL_S);
+  if (error || !data?.signedUrl) return pathOrUrl;
+  signedUrlCache.set(pathOrUrl, { url: data.signedUrl, at: Date.now() });
+  return data.signedUrl;
+}
+
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * base64 → bytes senza dipendenze: `atob` non è garantito da Hermes,
+ * mentre questo decoder copre sia la PWA sia l'app mobile.
+ */
+function base64ToBytes(input: string): Uint8Array {
+  const clean = input.replace(/^data:[^,]*,/, "").replace(/[\r\n]/g, "").replace(/=+$/, "");
+  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let buffer = 0;
+  let bits = 0;
+  let index = 0;
+  for (const char of clean) {
+    const value = BASE64_CHARS.indexOf(char);
+    if (value < 0) continue;
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes[index++] = (buffer >> bits) & 0xff;
+    }
+  }
+  return bytes.subarray(0, index);
+}
+
+/** Foto del periodo, con gli URL firmati risolti prima del render. */
 export function useProgressPhotos(from: string, to: string) {
   return useQuery({
     queryKey: progressKeys.photos(from, to),
-    queryFn: () => api.get<ApiProgressPhoto[]>(`/progress-photos?from=${from}&to=${to}`),
-    select: (rows): ProgressPhoto[] => rows.map(toProgressPhoto),
+    queryFn: async () => {
+      const rows = await api.get<ApiProgressPhoto[]>(`/progress-photos?from=${from}&to=${to}`);
+      const photos = await Promise.all(
+        rows.map(async (row) =>
+          toProgressPhoto({ ...row, photo_url: await resolvePhotoUrl(row.photo_url) }),
+        ),
+      );
+      return photos;
+    },
     retry: noRetry,
   });
 }
@@ -348,5 +411,49 @@ export function useAddMeasurement() {
       // Le serie sono per intervallo: invalida ogni periodo.
       void queryClient.invalidateQueries({ queryKey: progressKeys.measurementsAll });
     },
+  });
+}
+
+/* ------------------------------ Foto progressi ------------------------------ */
+
+export type UploadProgressPhotoInput = {
+  /** Data della foto (`YYYY-MM-DD`): la colonna `date` è obbligatoria. */
+  date: string;
+  /** Immagine base64 (con o senza prefisso `data:...;base64,`). */
+  base64: string;
+  mimeType: string;
+};
+
+/**
+ * Carica una foto dei progressi: bytes su Supabase Storage (bucket
+ * `progress-photos`, solo proprietario) e poi il percorso su
+ * `POST /api/progress-photos`.
+ *
+ * Se la seconda parte fallisce resta un file orfano nel bucket (pulibile
+ * a mano da Studio): è il caso inverso, una riga senza immagine, che
+ * romperebbe la griglia, quindi si salva prima il file.
+ */
+export function useUploadProgressPhoto() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ date, base64, mimeType }: UploadProgressPhotoInput) => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user.id;
+      if (!userId) throw new Error("Sessione scaduta: accedi di nuovo per caricare la foto.");
+
+      const extension =
+        mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+      const path = `${userId}/${date}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+
+      const { error } = await supabase.storage
+        .from(PROGRESS_BUCKET)
+        .upload(path, base64ToBytes(base64), { contentType: mimeType, upsert: false });
+      if (error) throw new Error(`Caricamento non riuscito: ${error.message}`);
+
+      return api.post<ApiProgressPhoto>("/progress-photos", { date, photo_url: path });
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: progressKeys.photosAll }),
   });
 }

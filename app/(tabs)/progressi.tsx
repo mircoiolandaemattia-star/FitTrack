@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -8,6 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { RefreshCw } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/home/Card";
@@ -30,6 +32,7 @@ import {
   useAddMeasurement,
   useCalorieSeries,
   useProgressPhotos,
+  useUploadProgressPhoto,
   useWeightSeries,
   type Period,
 } from "@/lib/progressQueries";
@@ -46,7 +49,8 @@ function errorMessage(error: unknown): string {
  * progress-photos (con filtro periodo sui parametri query), statistiche
  * allenamento derivate da workout-sessions e calorie giornaliere dai
  * meals/food_items del periodo — tutto con React Query. L'upload delle
- * foto resta uno stub (richiede Supabase Storage), segnalato in UI.
+ * foto carica l'immagine su Supabase Storage e salva il percorso sul
+ * backend (bucket privato, mostato con URL firmati).
  */
 export default function ProgressiScreen() {
   const { width } = useWindowDimensions();
@@ -56,7 +60,6 @@ export default function ProgressiScreen() {
 
   const [period, setPeriod] = useState<Period>("week");
   const [showMeasureModal, setShowMeasureModal] = useState(false);
-  const [photoStub, setPhotoStub] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Il periodo cambia i parametri ?from=&to= di misurazioni, foto e pasti.
@@ -67,6 +70,7 @@ export default function ProgressiScreen() {
   const sessionsQuery = useWorkoutSessions();
   const profileQuery = useProfile(); // target calorie per il grafico
   const addMeasurement = useAddMeasurement();
+  const uploadPhoto = useUploadProgressPhoto();
 
   const stats = deriveWorkoutStats(sessionsQuery.data ?? [], range.from, range.to);
   const diffs = measurementDiffs(weight.measurements);
@@ -87,6 +91,82 @@ export default function ProgressiScreen() {
     if (calories.isError) calories.refetch();
     if (photos.isError) void photos.refetch();
     if (sessionsQuery.isError) void sessionsQuery.refetch();
+  }
+
+  /** Foto scelta → Supabase Storage → riga su /progress-photos (data: oggi). */
+  async function uploadPicked(result: ImagePicker.ImagePickerResult) {
+    if (result.canceled) return;
+    const asset = result.assets?.[0];
+    if (!asset?.base64) {
+      setSaveError("Non sono riuscito a leggere l’immagine selezionata.");
+      return;
+    }
+    setSaveError(null);
+    try {
+      await uploadPhoto.mutateAsync({
+        date: toISODate(new Date()),
+        base64: asset.base64,
+        mimeType: asset.mimeType ?? "image/jpeg",
+      });
+    } catch (err) {
+      // Il backend parla italiano; i fallimenti di Storage arrivano come
+      // Error con un messaggio già leggibile (RLS, dimensione, formato).
+      setSaveError(
+        isApiError(err)
+          ? err.message
+          : err instanceof Error && err.message
+            ? err.message
+            : "Caricamento non riuscito: riprova.",
+      );
+    }
+  }
+
+  async function pickFromLibrary() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.7,
+        base64: true,
+      });
+      await uploadPicked(result);
+    } catch {
+      setSaveError("Non sono riuscito ad aprire la galleria.");
+    }
+  }
+
+  async function takePhoto() {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setSaveError("Per scattare la foto serve il permesso di usare la fotocamera.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.7,
+        base64: true,
+      });
+      await uploadPicked(result);
+    } catch {
+      setSaveError("Non sono riuscito a scattare la foto.");
+    }
+  }
+
+  /**
+   * "Aggiungi foto": su native si sceglie fra fotocamera e galleria,
+   * nella PWA (dove la fotocamera non è disponibile) solo la galleria.
+   */
+  function handleAddPhoto() {
+    if (uploadPhoto.isPending) return;
+    if (Platform.OS === "web") {
+      void pickFromLibrary();
+      return;
+    }
+    Alert.alert("Aggiungi foto", "Da dove prendi la foto?", [
+      { text: "Annulla", style: "cancel" },
+      { text: "Scatta foto", onPress: () => void takePhoto() },
+      { text: "Galleria", onPress: () => void pickFromLibrary() },
+    ]);
   }
 
   const weightCard = (
@@ -115,24 +195,15 @@ export default function ProgressiScreen() {
     </Card>
   );
 
-  const photoStubNotice = photoStub ? (
-    <Card className="gap-1 p-4">
-      <Text className="font-inter-semibold text-sm text-foreground">Upload foto non ancora disponibile</Text>
-      <Text className="font-sans text-sm leading-5 text-muted">
-        Il salvataggio delle foto richiede Supabase Storage: resta uno stub finché non lo colleghiamo.
-      </Text>
-    </Card>
-  ) : null;
-
   const photosCard = (
     <Card className="gap-3">
       <Text className="font-inter-semibold text-sm text-foreground">Foto progressi</Text>
       <ProgressPhotoGrid
         photos={photos.data ?? []}
         readOnly={isReadOnly}
-        onAdd={() => setPhotoStub(true)}
+        uploading={uploadPhoto.isPending}
+        onAdd={handleAddPhoto}
       />
-      {photoStubNotice}
     </Card>
   );
 
