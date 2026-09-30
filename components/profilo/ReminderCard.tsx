@@ -1,6 +1,7 @@
-import { Alert, Pressable, Switch, Text, View } from "react-native";
+import { Pressable, Switch, Text, View } from "react-native";
 import { Clock, Dumbbell, Trash2, UtensilsCrossed } from "lucide-react-native";
 import { Card } from "@/components/home/Card";
+import { confirmAction } from "@/lib/feedback";
 import { formatReminder } from "@/lib/reminderQueries";
 import type { DayOfWeek } from "@/types";
 
@@ -22,12 +23,16 @@ type Props = {
 };
 
 export function ReminderCard({ reminders, readOnly = false, onToggle, onDelete, onAdd }: Props) {
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     if (readOnly) return;
-    Alert.alert("Eliminare promemoria?", "Confermi l'eliminazione?", [
-      { text: "Annulla", style: "cancel" },
-      { text: "Elimina", style: "destructive", onPress: () => onDelete(id) },
-    ]);
+    const confirmed = await confirmAction({
+      title: "Eliminare promemoria?",
+      message: "Confermi l'eliminazione?",
+      confirmLabel: "Elimina",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    onDelete(id);
   }
 
   return (

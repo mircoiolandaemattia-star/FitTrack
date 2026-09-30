@@ -169,9 +169,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   const logout = useCallback(async () => {
-    // La sessione locale viene sempre rimossa (anche offline): la revoca
-    // server non blocca il logout.
-    await supabase.auth.signOut();
+    // Revoca + sessione supabase-js con tetto di attesa: se la rete non
+    // risponde l'uscita non deve restare bloccata (altrimenti il tasto
+    // sembra non rispondere). La promise continua in background e la
+    // sessione Supabase viene comunque rimossa al termine.
+    await Promise.race([
+      supabase.auth.signOut().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
+    // Pulizia locale sempre, anche offline.
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
     setToken(null);
     setUser(null);

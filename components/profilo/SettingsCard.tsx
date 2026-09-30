@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Alert, Platform, Switch, Text, View } from "react-native";
+import { Platform, Switch, Text, View } from "react-native";
 import { Card } from "@/components/home/Card";
+import { notify } from "@/lib/feedback";
 
 type Props = {
   readOnly?: boolean;
@@ -31,12 +32,12 @@ export function SettingsCard({ readOnly = false }: Props) {
         status = req.status;
       }
       if (status !== "granted") {
-        Alert.alert("Permesso negato", "Abilita le notifiche dalle impostazioni di sistema.");
+        notify("Permesso negato", "Abilita le notifiche dalle impostazioni di sistema.");
         return;
       }
     } catch {
       // Expo Go SDK 53+: modulo rimosso → mock attivo senza crash
-      Alert.alert("Expo Go", "Notifiche push non disponibili in Expo Go (SDK 53+). Usa un development build. Attivo in modalità mock.");
+      notify("Expo Go", "Notifiche push non disponibili in Expo Go (SDK 53+). Usa un development build. Attivo in modalità mock.");
     }
     setNotif(true);
   }

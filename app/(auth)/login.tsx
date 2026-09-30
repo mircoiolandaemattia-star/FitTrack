@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
 import { Link, router } from "expo-router";
 import { Dumbbell, Mail, Lock } from "lucide-react-native";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
+import { notify } from "@/lib/feedback";
 import { AuthInput } from "@/components/auth/AuthInput";
 
 function isEmailValid(v: string): boolean {
@@ -98,7 +99,7 @@ export default function LoginScreen() {
             <Text className="font-inter-bold text-base text-primary-foreground">{submitting ? "Accesso…" : "Accedi"}</Text>
           </Pressable>
 
-          <Pressable onPress={() => Alert.alert("Password dimenticata", "Funzionalità in arrivo. Contatta il supporto per reimpostare la password.")} className="items-center py-2 active:opacity-60">
+          <Pressable onPress={() => notify("Password dimenticata", "Funzionalità in arrivo. Contatta il supporto per reimpostare la password.")} className="items-center py-2 active:opacity-60">
             <Text className="font-inter-semibold text-sm text-primary">Password dimenticata?</Text>
           </Pressable>
         </View>

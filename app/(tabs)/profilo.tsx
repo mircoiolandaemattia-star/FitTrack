@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -25,6 +24,7 @@ import { useIsStandalone } from "@/lib/useStandalone";
 import { type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
 import { GOAL_TO_API, ACTIVITY_TO_API, type CreateProfileInput } from "@/lib/profileQueries";
 import { isApiError } from "@/lib/api";
+import { confirmAction, notify } from "@/lib/feedback";
 import { birthDateFromAge , useProfile, useUpdateProfile } from "@/lib/profileQueries";
 import {
   useReminders,
@@ -111,39 +111,27 @@ export default function ProfiloScreen() {
     setEditProfileOpen(false);
   }
 
-  function handleGoalChange(g: Goal) {
+  async function handleGoalChange(g: Goal) {
     // Conferma esplicita: ricalcola il TDEE lato server
-    Alert.alert(
-      "Cambiare obiettivo?",
-      "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
-      [
-        { text: "Annulla", style: "cancel" },
-        {
-          text: "Conferma",
-          onPress: () => {
-            setSaveError(null);
-            updateProfile.mutate({ goal: GOAL_TO_API[g] }, { onError: (err) => setSaveError(errorMessage(err)) });
-          },
-        },
-      ],
-    );
+    const confirmed = await confirmAction({
+      title: "Cambiare obiettivo?",
+      message: "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
+      confirmLabel: "Conferma",
+    });
+    if (!confirmed) return;
+    setSaveError(null);
+    updateProfile.mutate({ goal: GOAL_TO_API[g] }, { onError: (err) => setSaveError(errorMessage(err)) });
   }
 
-  function handleActivityChange(a: ActivityLevel) {
-    Alert.alert(
-      "Cambiare livello attività?",
-      "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
-      [
-        { text: "Annulla", style: "cancel" },
-        {
-          text: "Conferma",
-          onPress: () => {
-            setSaveError(null);
-            updateProfile.mutate({ activity_level: ACTIVITY_TO_API[a] }, { onError: (err) => setSaveError(errorMessage(err)) });
-          },
-        },
-      ],
-    );
+  async function handleActivityChange(a: ActivityLevel) {
+    const confirmed = await confirmAction({
+      title: "Cambiare livello attività?",
+      message: "Il fabbisogno calorico verrà ricalcolato. Vuoi continuare?",
+      confirmLabel: "Conferma",
+    });
+    if (!confirmed) return;
+    setSaveError(null);
+    updateProfile.mutate({ activity_level: ACTIVITY_TO_API[a] }, { onError: (err) => setSaveError(errorMessage(err)) });
   }
 
   /**
@@ -153,12 +141,11 @@ export default function ProfiloScreen() {
    */
   function subscriptionNotice(title: string) {
     const status = profile?.subscription_status ?? "free";
-    Alert.alert(
+    notify(
       title,
       status === "premium"
         ? "Il tuo account è già premium: tutti i contenuti sono sbloccati. Per modifiche o disdetta contatta il supporto."
         : "In questa versione non c'è un portale di pagamento: l'abbonamento premium viene attivato manualmente dall'amministratore dell'app.",
-      [{ text: "OK" }],
     );
   }
 
@@ -175,32 +162,36 @@ export default function ProfiloScreen() {
   }
 
   async function handleLogout() {
-    const confirmed = await new Promise<boolean>((resolve) =>
-      Alert.alert("Esci", "Vuoi davvero uscire dall'account?", [
-        { text: "Annulla", style: "cancel", onPress: () => resolve(false) },
-        { text: "Esci", style: "destructive", onPress: () => resolve(true) },
-      ]),
-    );
+    const confirmed = await confirmAction({
+      title: "Esci",
+      message: "Vuoi davvero uscire dall'account?",
+      confirmLabel: "Esci",
+      destructive: true,
+    });
     if (!confirmed) return;
-    await logout();
-    // Pulisci TUTTA la cache React Query dell'utente uscente
-    queryClient.clear();
-    router.replace("/(auth)/login");
+    try {
+      await logout();
+    } finally {
+      // La cache e la navigazione avvengono anche se la revoca fallisce:
+      // l'utente deve uscire in ogni caso.
+      queryClient.clear();
+      router.replace("/(auth)/login");
+    }
   }
 
   function handleReminderToggle(id: string, isActive: boolean) {
     updateReminder.mutate({ id, patch: { isActive } }, { onError: (err) => setSaveError(errorMessage(err)) });
   }
 
-  function handleReminderDelete(id: string) {
-    Alert.alert("Eliminare promemoria?", "Confermi l'eliminazione?", [
-      { text: "Annulla", style: "cancel" },
-      {
-        text: "Elimina",
-        style: "destructive",
-        onPress: () => deleteReminder.mutate(id, { onError: (err) => setSaveError(errorMessage(err)) }),
-      },
-    ]);
+  async function handleReminderDelete(id: string) {
+    const confirmed = await confirmAction({
+      title: "Eliminare promemoria?",
+      message: "Confermi l'eliminazione?",
+      confirmLabel: "Elimina",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    deleteReminder.mutate(id, { onError: (err) => setSaveError(errorMessage(err)) });
   }
 
   const header = (
