@@ -20,11 +20,25 @@ import { HttpError } from "../errors";
  * - `GEMINI_ERROR`           502  risposta HTTP non positiva da Google
  * - `GEMINI_BLOCKED`         502  richiesta bloccata dai filtri di Google
  * - `GEMINI_INVALID_RESPONSE`502  corpo non JSON, vuoto o non valido
+ *
+ * Affidabilità (l'API free tier dà spesso 503 "high demand" e Google
+ * ritira i modelli vecchi con 404):
+ * - su **503** si ritenta lo stesso modello `GEMINI_503_RETRIES` volte
+ *   (default 1) con attesa `GEMINI_RETRY_DELAY_MS` crescente;
+ * - su **404** (modello ritirato) o 503 esauriti i tentativi si passa al
+ *   modello successivo della catena `GEMINI_MODEL` + `GEMINI_FALLBACK_MODELS`
+ *   (default `gemini-3.5-flash-lite`; vuoto = nessun fallback);
+ * - gli altri status (400/401/403/429/500) e i timeout/rete **non**
+ *   cambiano modello: sono errori che riguardano la richiesta o la chiave,
+ *   non il singolo modello, e ritentare aumenterebbe solo la latenza.
  */
 // I nuovi progetti possono usare solo i modelli recenti (Google ha ritirato
 // gemini-2.5-flash con 404 "no longer available to new users").
 const DEFAULT_MODEL = "gemini-3.8-flash";
+const DEFAULT_FALLBACK_MODELS = "gemini-3.5-flash-lite";
 const DEFAULT_TIMEOUT_MS = 45_000;
+const DEFAULT_503_RETRIES = 1;
+const DEFAULT_RETRY_DELAY_MS = 800;
 
 export interface GeminiAttachment {
   /** MIME type dell'allegato (`image/jpeg`, `image/png`, `application/pdf`). */
@@ -63,6 +77,31 @@ function envTimeoutMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
 }
 
+/** Numero di ritentativi extra su 503 per lo stesso modello (0 = nessuno). */
+function env503Retries(): number {
+  const raw = Number(process.env.GEMINI_503_RETRIES);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : DEFAULT_503_RETRIES;
+}
+
+/** Pausa base (ms) tra un tentativo e il successivo su 503. */
+function envRetryDelayMs(): number {
+  const raw = Number(process.env.GEMINI_RETRY_DELAY_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_RETRY_DELAY_MS;
+}
+
+/**
+ * Catena di modelli da provare in ordine: primario (`GEMINI_MODEL`) più i
+ * fallback (`GEMINI_FALLBACK_MODELS`, CSV). Fallback vuoto = solo primario.
+ */
+function modelChain(): string[] {
+  const primary = (process.env.GEMINI_MODEL ?? "").trim() || DEFAULT_MODEL;
+  const fallbacks = (process.env.GEMINI_FALLBACK_MODELS ?? DEFAULT_FALLBACK_MODELS)
+    .split(",")
+    .map((model) => model.trim())
+    .filter((model) => model.length > 0 && model !== primary);
+  return [primary, ...fallbacks];
+}
+
 /** Testo utile (tracciato) di un body di errore Google, senza rumorosità. */
 function snippet(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -70,8 +109,8 @@ function snippet(text: string): string {
 }
 
 /** Mappa lo status HTTP di Google su un `HttpError` con codice proprio. */
-function googleStatusError(status: number, body: string): HttpError {
-  const details = { googleStatus: status, body: snippet(body) };
+function googleStatusError(status: number, body: string, model: string): HttpError {
+  const details = { googleStatus: status, model, body: snippet(body) };
   if (status === 429) {
     return new HttpError(
       429,
@@ -107,10 +146,12 @@ function candidateText(payload: GenerateContentResponse): string {
 /**
  * Unica porta d'ingresso alle chiamate Gemini.
  *
- * Costruisce il body (`contents` + eventuali allegati inline), esegue la
- * richiesta con timeout, traduce ogni esito (rete, status Google, corpo
- * malformato) in `HttpError` e, se `schema` è presente, valida il JSON
- * generato. Gli endpoint non fanno altro che passare prompt e schema.
+ * Costruisce il body (`contents` + eventuali allegati inline), poi prova la
+ * catena di modelli: su 503 ritenta lo stesso modello (backoff lineare) e su
+ * 404/503 esauriti passa al fallback. Ogni esito (rete, status Google, corpo
+ * malformato) viene tradotto in `HttpError` e, se `schema` è presente, il
+ * JSON generato viene validato. Gli endpoint non fanno altro che passare
+ * prompt e schema.
  */
 export async function generateGemini<T = string>(request: GeminiRequest<T>): Promise<T> {
   const apiKey = (process.env.GEMINI_API_KEY ?? "").trim();
@@ -122,7 +163,6 @@ export async function generateGemini<T = string>(request: GeminiRequest<T>): Pro
     );
   }
 
-  const model = (process.env.GEMINI_MODEL ?? "").trim() || DEFAULT_MODEL;
   const baseUrl = (process.env.GEMINI_API_BASE ?? "")
     .trim()
     .replace(/\/+$/, "") || "https://generativelanguage.googleapis.com";
@@ -149,37 +189,76 @@ export async function generateGemini<T = string>(request: GeminiRequest<T>): Pro
   };
 
   const timeoutMs = envTimeoutMs();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const retries503 = env503Retries();
+  const retryDelayMs = envRetryDelayMs();
+  const chain = modelChain();
+  // Budget complessivo: tutti i tentativi (retry + fallback) devono stare
+  // entro GEMINI_TIMEOUT_MS, non un timeout per singolo tentativo.
+  const deadline = Date.now() + timeoutMs;
 
-  let status: number;
-  let raw: string;
-  try {
-    const response = await fetch(`${baseUrl}/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    status = response.status;
-    raw = await response.text();
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new HttpError(
-        504,
-        "GEMINI_TIMEOUT",
-        `Gemini non ha risposto entro ${timeoutMs} ms.`,
-      );
+  /** Un singolo POST su un dato modello: restituisce status + corpo. */
+  const postToModel = async (model: string, budgetMs: number): Promise<{ status: number; raw: string }> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    try {
+      const response = await fetch(`${baseUrl}/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      return { status: response.status, raw: await response.text() };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new HttpError(
+          504,
+          "GEMINI_TIMEOUT",
+          `Gemini non ha risposto entro ${timeoutMs} ms.`,
+          { model },
+        );
+      }
+      throw new HttpError(502, "GEMINI_UNAVAILABLE", "Servizio Gemini irraggiungibile.", {
+        model,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      clearTimeout(timer);
     }
-    throw new HttpError(502, "GEMINI_UNAVAILABLE", "Servizio Gemini irraggiungibile.", {
-      cause: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  };
 
-  if (!status || status < 200 || status >= 300) {
-    throw googleStatusError(status, raw);
+  let status = 0;
+  let raw = "";
+  let lastError: HttpError | undefined;
+
+  // Catena dei modelli: 404 (ritirato) o 503 senza tentativi rimasti
+  // passano al modello successivo; ogni altro errore è definitivo.
+  for (let i = 0; i < chain.length; i += 1) {
+    const model = chain[i];
+    for (let attempt = 0; ; attempt += 1) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw lastError ??
+          new HttpError(504, "GEMINI_TIMEOUT", `Gemini non ha risposto entro ${timeoutMs} ms.`, { model });
+      }
+      ({ status, raw } = await postToModel(model, remainingMs));
+
+      if (status >= 200 && status < 300) break; // OK: esce dai tentativi
+
+      const error = googleStatusError(status, raw, model);
+      if (status === 429) throw error; // quota Google: cambiare modello non aiuta
+      if (status !== 503 && status !== 404) throw error;
+
+      // 503 "high demand" → ritenta lo stesso modello con backoff lineare
+      const delayMs = retryDelayMs * (attempt + 1);
+      if (status === 503 && attempt < retries503 && delayMs < deadline - Date.now()) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      lastError = error; // 404, o 503 esauriti: al prossimo modello
+      break;
+    }
+    if (status >= 200 && status < 300) break;
+    if (chain[i + 1] === undefined) throw lastError ?? googleStatusError(status, raw, chain[i]);
   }
 
   let parsed: unknown;

@@ -9,7 +9,9 @@
  * Copre: quota free 2 foto/giorno (sotto, sopra, risposta invariata),
  * premium senza limite, 403 PREMIUM_REQUIRED sui tre endpoint premium-only,
  * 201 sui tre per l'utente premium, chiamata Gemini fallita che NON incrementa
- * ai_usage_log, salvataggi con source "ai" annidati, limiti di payload.
+ * ai_usage_log, salvataggi con source "ai" annidati, limiti di payload,
+ * retry 503 sullo stesso modello, fallback 404 al modello successivo,
+ * catena esaurita (nessun uso registrato) e 429 senza cambio modello.
  *
  * Uso:  node scripts/ai-endpoints.test.mjs [--no-build]
  * Richiede il Supabase locale attivo (npx supabase start) e le migrazioni
@@ -87,7 +89,7 @@ async function call(baseUrl, method, route, { token, body, raw } = {}) {
 
 /* ----------------------------------------------------------- Gemini mock */
 
-const mock = { queue: [], calls: 0 };
+const mock = { queue: [], calls: 0, urls: [] };
 
 /** Risposta Gemini valida con un payload JSON già serializzato dentro. */
 function geminiJson(payload) {
@@ -97,6 +99,7 @@ function geminiJson(payload) {
 function startMockGemini() {
   const server = http.createServer((req, res) => {
     mock.calls += 1;
+    mock.urls.push(req.url);
     let received = "";
     req.on("data", (chunk) => (received += chunk));
     req.on("end", () => {
@@ -210,6 +213,11 @@ async function main() {
   process.env.GEMINI_API_BASE = `http://127.0.0.1:${mockPort}`;
   process.env.GEMINI_API_KEY = "chiave-di-test";
   process.env.GEMINI_TIMEOUT_MS = "10000";
+  // Catena di modelli esplicita (gli URL mockati sono quelli di sotto) e
+  // attese minime: i test di retry/fallback devono restare rapidi.
+  process.env.GEMINI_MODEL = "modello-primario-test";
+  process.env.GEMINI_FALLBACK_MODELS = "modello-fallback-test";
+  process.env.GEMINI_RETRY_DELAY_MS = "10";
 
   const { createApp } = await import(pathToFileURL(path.join(ROOT, "dist-server/server/app.js")));
   const { prisma } = await import(pathToFileURL(path.join(ROOT, "dist-server/lib/prisma.js")));
@@ -429,6 +437,57 @@ async function main() {
     const bigBody = JSON.stringify({ name: "x", source: "manual", pad: "B".repeat(2 * 1024 * 1024) });
     const tooLarge = await call(base, "POST", "/api/workout-plans", { token: tokens.premium, raw: bigBody });
     check("corpo >1mb su altra route → 413 PAYLOAD_TOO_LARGE", tooLarge.status === 413 && tooLarge.body?.error?.code === "PAYLOAD_TOO_LARGE", tooLarge.text.slice(0, 200));
+
+    /* --- retry 503 e fallback di modello (catena GEMINI_MODEL → fallback) */
+    mock.queue.push(
+      { status: 503, body: { error: { code: 503, status: "UNAVAILABLE", message: "high demand" } } },
+      geminiJson(MEAL_PHOTO_DRAFT),
+    );
+    const retry503 = await call(base, "POST", "/api/ai/meal-photo", {
+      token: tokens.premium,
+      body: { photo: "AAAA", mime_type: "image/jpeg" },
+    });
+    check("503 → retry sullo stesso modello → 201", retry503.status === 201, retry503.text.slice(0, 300));
+    const retryUrls = mock.urls.slice(-2);
+    check("503: entrambi i tentativi sul modello primario", retryUrls.length === 2 && retryUrls.every((url) => url.includes("modello-primario-test")), JSON.stringify(retryUrls));
+
+    mock.queue.push(
+      { status: 404, body: { error: { code: 404, message: "modello ritirato" } } },
+      geminiJson(MEAL_PHOTO_DRAFT),
+    );
+    const fallback404 = await call(base, "POST", "/api/ai/meal-photo", {
+      token: tokens.premium,
+      body: { photo: "AAAA", mime_type: "image/jpeg" },
+    });
+    check("404 → fallback al modello successivo → 201", fallback404.status === 201, fallback404.text.slice(0, 300));
+    const fallbackUrls = mock.urls.slice(-2);
+    check("404: secondo tentativo sul modello fallback", fallbackUrls[0]?.includes("modello-primario-test") && fallbackUrls[1]?.includes("modello-fallback-test"), JSON.stringify(fallbackUrls));
+
+    const usageBeforeExhaust = await usage(tokens.premium, "photo_meal");
+    const callsBeforeExhaust = mock.calls;
+    for (let i = 0; i < 4; i += 1) {
+      mock.queue.push({ status: 503, body: { error: { code: 503, status: "UNAVAILABLE", message: "high demand" } } });
+    }
+    const exhausted = await call(base, "POST", "/api/ai/meal-photo", {
+      token: tokens.premium,
+      body: { photo: "AAAA", mime_type: "image/jpeg" },
+    });
+    check("tutti i modelli in 503 → 502 GEMINI_ERROR sul fallback", exhausted.status === 502 &&
+      exhausted.body?.error?.code === "GEMINI_ERROR" &&
+      exhausted.body?.error?.details?.model === "modello-fallback-test", exhausted.text.slice(0, 300));
+    check("catena esaurita → 4 chiamate (2 modelli × 2 tentativi)", mock.calls - callsBeforeExhaust === 4, `chiamate: ${mock.calls - callsBeforeExhaust}`);
+    const usageAfterExhaust = await usage(tokens.premium, "photo_meal");
+    check("catena esaurita → nessun uso registrato", usageAfterExhaust.body?.count === usageBeforeExhaust.body?.count, `${usageBeforeExhaust.body?.count} → ${usageAfterExhaust.body?.count}`);
+
+    const callsBeforeRate = mock.calls;
+    mock.queue.push({ status: 429, body: { error: { code: 429, message: "quota esaurita" } } });
+    const rateLimited = await call(base, "POST", "/api/ai/meal-photo", {
+      token: tokens.premium,
+      body: { photo: "AAAA", mime_type: "image/jpeg" },
+    });
+    check("429 → 429 GEMINI_RATE_LIMITED (nessun cambio modello)", rateLimited.status === 429 &&
+      rateLimited.body?.error?.code === "GEMINI_RATE_LIMITED", rateLimited.text.slice(0, 300));
+    check("429 → una sola chiamata a Google", mock.calls - callsBeforeRate === 1, `chiamate: ${mock.calls - callsBeforeRate}`);
   } finally {
     await prisma.users.deleteMany({ where: { id: { in: [freeId, free2Id, premiumId] } } }).catch(() => {});
     await prisma.$disconnect().catch(() => {});
