@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Barcode, Camera, Check, FileText, Images, PenLine, ScanLine, Sparkles, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Camera as ExpoCamera } from "expo-camera";
 import type { DietFoodDraft } from "@/types";
 import type { MealType } from "@/lib/dietaStore";
 import { aiErrorMessage, useAnalyzeMealPhoto, useReadFile, type AiFoodItem } from "@/lib/aiQueries";
@@ -274,19 +273,15 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
     startBarcodeLookup(barcode);
   }
 
-  /** Fotocamera: chiede il permesso (come per la foto) e apre lo scanner. */
-  async function handleOpenScanner() {
+  /**
+   * Apre lo scanner senza attendere nulla: il permesso di fotocamera lo
+   * richiede il modal (con la schermata di ripiego se negato), così un
+   * rifiuto o un errore non chiudono silenziosamente il flusso.
+   */
+  function handleOpenScanner() {
     setBarcodeError(null);
-    try {
-      const permission = await ExpoCamera.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        setBarcodeError("Per scansionare il codice a barre serve il permesso di usare la fotocamera.");
-        return;
-      }
-      setScannerOpen(true);
-    } catch {
-      setBarcodeError("Non sono riuscito ad avviare la fotocamera.");
-    }
+    Keyboard.dismiss();
+    setScannerOpen(true);
   }
 
   /** Codice letto: si chiude lo scanner e si cerca subito il prodotto. */
@@ -654,14 +649,16 @@ export function AddFoodModal({ visible, mealType, onClose, onAdd }: AddFoodModal
               {mode === "manual" ? <ManualFoodForm onAdd={(draft) => handleAdd([draft], "manual")} /> : null}
             </ScrollView>
           </View>
+
+          {/* Scanner a schermo intero: va annidato DENTRO questo Modal.
+              Come fratello finirebbe sotto la root view controller, che sta
+              già presentando questo modal: iOS rifiuta la seconda
+              presentazione in silenzio e il tap non mostrava nulla. */}
+          {scannerOpen ? (
+            <BarcodeScannerModal visible onClose={() => setScannerOpen(false)} onScanned={handleScannerScan} />
+          ) : null}
         </View>
       </Modal>
-
-      {/* Scanner a schermo intero: fuori dal Modal sopra per non annidare
-          due modali native. Chiuso non resta la fotocamera accesa. */}
-      {scannerOpen ? (
-        <BarcodeScannerModal visible onClose={() => setScannerOpen(false)} onScanned={handleScannerScan} />
-      ) : null}
     </>
   );
 }

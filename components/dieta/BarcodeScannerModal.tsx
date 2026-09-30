@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions, type BarcodeType } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +38,22 @@ export function BarcodeScannerModal({ visible, onClose, onScanned }: BarcodeScan
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
   const lastScan = useRef<{ code: string; at: number } | null>(null);
+  const askedOnce = useRef(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [mountError, setMountError] = useState<string | null>(null);
+
+  /**
+   * Il permesso viene chiesto qui aprendo il modal: se è già concesso la
+   * promise risolve subito, altrimenti parte il dialogo di sistema sopra lo
+   * scanner. Prima la chiedeva il chiamante prima di aprire, e un rifiuto o
+   * un errore restavano senza feedback visibile.
+   */
+  useEffect(() => {
+    if (!permission || askedOnce.current) return;
+    if (permission.granted || !permission.canAskAgain || permission.status !== "undetermined") return;
+    askedOnce.current = true;
+    void requestPermission().catch(() => {});
+  }, [permission, requestPermission]);
 
   function handleScanned(code: string) {
     const clean = code.trim();
@@ -62,6 +78,8 @@ export function BarcodeScannerModal({ visible, onClose, onScanned }: BarcodeScan
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
             onBarcodeScanned={(result) => handleScanned(result.data)}
+            onCameraReady={() => setCameraReady(true)}
+            onMountError={(event) => setMountError(event.message)}
           />
         ) : (
           <View className="flex-1 items-center justify-center gap-4 px-8">
@@ -95,6 +113,22 @@ export function BarcodeScannerModal({ visible, onClose, onScanned }: BarcodeScan
 
         {granted ? (
           <>
+            {/* Il permesso non basta: se la camera non parte (o è occupata da
+                un'altra app) qui compare il motivo invece di uno schermo nero. */}
+            {mountError ? (
+              <View style={{ top: insets.top + 64 }} className="absolute left-4 right-4 gap-1 rounded-xl border border-destructive/50 bg-black/85 p-3">
+                <Text className="font-inter-semibold text-sm text-destructive">Fotocamera non disponibile</Text>
+                <Text className="font-sans text-xs leading-4 text-white/80">{mountError}</Text>
+              </View>
+            ) : null}
+
+            {!cameraReady && !mountError ? (
+              <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center gap-3">
+                <ActivityIndicator color="#F97316" size="large" />
+                <Text className="font-inter-semibold text-base text-white">Avvio fotocamera…</Text>
+              </View>
+            ) : null}
+
             {/* Finestra di inquadratura: zona scura attorno al riquadro. */}
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <View className="h-44 bg-black/60" />
