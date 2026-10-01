@@ -4,9 +4,11 @@ name: Keep Render awake
 # risveglio ci mette ~60 secondi (misurati: 58,4s). Con un ping ogni 10
 # minuti il backend resta sveglio e la prima richiesta dell'utente non
 # resta appesa un minuto.
+# Minuti "sparsi": GitHub esegue le schedule a spareggio e in cima all'ora
+# (0, 10, 20...) le run vengono ritardate o saltate del tutto, senza avviso.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch:
 
 jobs:
