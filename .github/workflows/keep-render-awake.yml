@@ -1,0 +1,26 @@
+name: Keep Render awake
+
+# Render free addormenta il servizio dopo un periodo di inattività e al
+# risveglio ci mette ~60 secondi (misurati: 58,4s). Con un ping ogni 10
+# minuti il backend resta sveglio e la prima richiesta dell'utente non
+# resta appesa un minuto.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Risveglia il backend
+        run: |
+          url="https://fittrack-1-goh7.onrender.com/api/food-items/lookup?barcode=0000000000000"
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 90 "$url" || echo "000")
+          echo "HTTP ${code}"
+          # 401 = servizio svegio (richiesta senza token respinta dall'auth),
+          # 200 = servizio svegio e cache del codice a barre.
+          if [ "${code}" != "401" ] && [ "${code}" != "200" ]; then
+            echo "Il backend non ha risposto come previsto"
+            exit 1
+          fi

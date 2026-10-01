@@ -18,6 +18,9 @@ import { workoutKeys } from "./workoutQueries";
  * (`PREMIUM_REQUIRED`, `DAILY_LIMIT_REACHED`, `GEMINI_*`).
  */
 
+/** L'analisi AI può impiegare diversi secondi: timeout dedicato (default60s). */
+const AI_TIMEOUT_MS = 120_000;
+
 /** Riga di stima di `POST /ai/meal-photo`: gli stessi campi di `food_items`. */
 export interface AiFoodItem {
   name: string;
@@ -57,7 +60,7 @@ export function useAnalyzeMealPhoto() {
         photo,
         mime_type: mimeType,
         description,
-      }),
+      }, { timeoutMs: AI_TIMEOUT_MS }),
     retry: noRetry,
   });
 }
@@ -106,7 +109,7 @@ export function useGenerateDiet() {
         meals_per_day: input.mealsPerDay,
         allergies: input.allergies,
         notes: input.notes ?? "",
-      }),
+      }, { timeoutMs: AI_TIMEOUT_MS }),
     retry: noRetry,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["diet"] }),
   });
@@ -163,7 +166,7 @@ export function useGenerateWorkout() {
         days_per_week: input.daysPerWeek,
         equipment: input.equipment,
         notes: input.notes ?? "",
-      }),
+      }, { timeoutMs: AI_TIMEOUT_MS }),
     retry: noRetry,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
   });
@@ -222,7 +225,7 @@ export function useReadFile() {
         file,
         mime_type: mimeType,
         kind,
-      }),
+      }, { timeoutMs: AI_TIMEOUT_MS }),
     retry: noRetry,
   });
 }
