@@ -63,6 +63,12 @@
           "photosPermission": "FitTrack accede alle foto per allegare immagini dei pasti e dei progressi.",
           "cameraPermission": "FitTrack usa la fotocamera per scattare foto dei pasti e dei progressi."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#F97316"
+        }
       ]
     ],
     "experiments": {

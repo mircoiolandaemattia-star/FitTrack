@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -22,9 +22,16 @@ import { SubscriptionCard, type SubscriptionState } from "@/components/profilo/S
 import { useAuth } from "@/lib/auth";
 import { useIsStandalone } from "@/lib/useStandalone";
 import { type ActivityLevel, type Goal } from "@/lib/calorieCalculator";
-import { GOAL_TO_API, ACTIVITY_TO_API, type CreateProfileInput } from "@/lib/profileQueries";
+import { GOAL_TO_API, ACTIVITY_TO_API, goalFromApi, activityFromApi, type CreateProfileInput } from "@/lib/profileQueries";
 import { isApiError } from "@/lib/api";
 import { confirmAction, notify } from "@/lib/feedback";
+import {
+  getNotificationPermission,
+  loadNotificationsEnabled,
+  requestNotificationPermission,
+  saveNotificationsEnabled,
+  syncReminderNotifications,
+} from "@/lib/notifications";
 import { birthDateFromAge , useProfile, useUpdateProfile } from "@/lib/profileQueries";
 import {
   useReminders,
@@ -45,8 +52,9 @@ function errorMessage(error: unknown): string {
 /**
  * Profilo: dati personali, obiettivo, attività da GET/PUT /api/users/me
  * (con conferma prima di salvare perché ricalcola il TDEE), promemoria
- * CRUD da /api/reminders, stato abbonamento da users, logout che pulisce
- * anche la cache React Query. Mock rimossi per le parti collegate.
+ * CRUD da /api/reminders — con le notifiche locali che li riallineano a
+ * ogni cambiamento — stato abbonamento da users, logout che pulisce anche
+ * la cache React Query. Mock rimossi per le parti collegate.
  */
 export default function ProfiloScreen() {
   const { width } = useWindowDimensions();
@@ -63,14 +71,28 @@ export default function ProfiloScreen() {
   const [, setEditProfileOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Notifiche: preferenza del dispositivo + permesso di sistema. Finchè non
+  // sono letti non si tocca nulla di programmato, altrimenti un riavvio
+  // cancellerebbe le notifiche già programmate.
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
+  const [notifReady, setNotifReady] = useState(false);
+  // Le notifiche partono solo con permesso esplicito: la preferenza da sola
+  // non basta (e l'interruttore deve mostrare la realtà, non la speranza).
+  const notifActive = notifReady && notifEnabled && notifGranted === true;
+
   // Profilo server (target TDEE, subscription, ecc.)
   const profileQuery = useProfile();
   const profile = profileQuery.data;
   const updateProfile = useUpdateProfile();
 
-  // Promemoria reali
+  // Promemoria reali (memo: la referenza deve restare stabile, altrimenti
+  // l'effect che riallinea le notifiche partirebbe ad ogni render)
   const remindersQuery = useReminders();
-  const reminders: Reminder[] = (remindersQuery.data ?? []).map(toReminder);
+  const reminders: Reminder[] = useMemo(
+    () => (remindersQuery.data ?? []).map(toReminder),
+    [remindersQuery.data],
+  );
   const createReminder = useCreateReminder();
   const updateReminder = useUpdateReminder();
   const deleteReminder = useDeleteReminder();
@@ -89,9 +111,37 @@ export default function ProfiloScreen() {
     return "free";
   }, [profile?.subscription_status]);
 
-  // Goal/activity per i selettori (profilo server)
-  const serverGoal = profile?.goal ?? null;
-  const serverActivity = profile?.activity_level ?? null;
+  // Goal/activity per i selettori: il server parla "lose"/"active", l'app
+  // "dimagrire"/"high" → senza la conversione nessuna opzione risultava
+  // selezionata (e il TDEE usava delta e fattore di default).
+  const serverGoal = goalFromApi(profile?.goal);
+  const serverActivity = activityFromApi(profile?.activity_level);
+
+  // Preferenza e permesso: letti una volta all'apertura della schermata.
+  useEffect(() => {
+    let active = true;
+    void Promise.all([loadNotificationsEnabled(), getNotificationPermission()]).then(
+      ([enabled, granted]) => {
+        if (!active) return;
+        setNotifEnabled(enabled);
+        setNotifGranted(granted);
+        setNotifReady(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Riallinea le notifiche programmate ai promemoria mostrati: si esegue
+  // quando cambiano i promemoria, il permesso o la preferenza.
+  useEffect(() => {
+    if (!notifReady) return;
+    // Con le notifiche accese serve la lista dal server: un profilo aperto
+    // offline altrimenti cancellerebbe ciò che è già programmato.
+    if (notifActive && remindersQuery.data === undefined) return;
+    void syncReminderNotifications(notifActive ? reminders : []);
+  }, [notifReady, notifActive, reminders, remindersQuery.data]);
 
   function handlePersonalSave(data: PersonalData) {
     const patch: Partial<CreateProfileInput> = {
@@ -174,8 +224,32 @@ export default function ProfiloScreen() {
     } finally {
       // La cache e la navigazione avvengono anche se la revoca fallisce:
       // l'utente deve uscire in ogni caso.
+      void syncReminderNotifications([]);
       queryClient.clear();
       router.replace("/(auth)/login");
+    }
+  }
+
+  /**
+   * Toggle notifiche: accendendo si chiede il permesso di sistema (l'effect
+   * qui sopra programma poi i promemoria), spegnendo si cancella tutto.
+   */
+  async function handleNotifToggle(value: boolean) {
+    if (isReadOnly || Platform.OS === "web") return;
+    if (!value) {
+      await saveNotificationsEnabled(false);
+      setNotifEnabled(false);
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    setNotifGranted(granted);
+    // La preferenza resta attiva anche con il permesso negato: la didascalia
+    // deve continuare a dire che manca il permesso, non che le notifiche
+    // sono state spente dall'utente.
+    await saveNotificationsEnabled(true);
+    setNotifEnabled(true);
+    if (!granted) {
+      notify("Permesso negato", "Abilita le notifiche dalle impostazioni del telefono per ricevere i promemoria.");
     }
   }
 
@@ -254,7 +328,12 @@ export default function ProfiloScreen() {
 
   const rightColumn = (
     <View className="gap-4">
-      <SettingsCard readOnly={isReadOnly} />
+      <SettingsCard
+        readOnly={isReadOnly}
+        enabled={notifEnabled}
+        permission={notifGranted}
+        onChange={handleNotifToggle}
+      />
       <ReminderCard
         reminders={reminders}
         readOnly={isReadOnly}
@@ -332,6 +411,12 @@ export default function ProfiloScreen() {
             },
             { onError: (err) => setSaveError(errorMessage(err)) },
           );
+          // Prima occasione utile per chiedere il permesso: l'utente ha appena
+          // chiesto di essere avvisato. Con le notifiche spente invece non si
+          // insiste: è una scelta già presa (e lo dice la didascalia).
+          if (notifEnabled && Platform.OS !== "web") {
+            void requestNotificationPermission().then(setNotifGranted);
+          }
         }}
       />
     </Screen>

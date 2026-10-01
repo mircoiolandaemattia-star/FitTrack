@@ -75,8 +75,8 @@ const INDEX_TO_DAY: Record<number, DayOfWeek> = {
   6: "sunday",
 };
 
-/** `DayOfWeek` letterale → indice 0..6 (per invio al backend). */
-const DAY_TO_INDEX: Record<DayOfWeek, number> = {
+/** `DayOfWeek` letterale → indice 0..6 (per invio al backend e alle notifiche). */
+export const DAY_TO_INDEX: Record<DayOfWeek, number> = {
   monday: 0,
   tuesday: 1,
   wednesday: 2,

@@ -13,6 +13,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { isProfileMissing, useProfile } from "@/lib/profileQueries";
+import { configureNotifications } from "@/lib/notifications";
 import "../global.css";
 
 // Tieni visibile lo splash finché font e stato auth non sono pronti.
@@ -42,6 +43,12 @@ export default function RootLayout() {
   if (typeof Appearance.setColorScheme === "function") {
     Appearance.setColorScheme("dark");
   }
+
+  // Handler delle notifiche: serve all'avvio perché i promemoria ricevuti
+  // con l'app aperta vengano mostrati (senza handler il sistema li butta).
+  useEffect(() => {
+    void configureNotifications();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

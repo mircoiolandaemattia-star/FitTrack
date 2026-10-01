@@ -51,6 +51,37 @@ export const ACTIVITY_TO_API: Record<ActivityLevel, CreateProfileInput["activity
 };
 
 /**
+ * Dizionari inversi: il backend parla "lose"/"active", l'app "dimagrire"/
+ * "high". Senza queste mappe il profilo non evidenziava mai l'obiettivo
+ * (e il livello) scelti, perché i due enum non coincidono.
+ */
+export const GOAL_FROM_API: Record<CreateProfileInput["goal"], Goal> = {
+  lose: "dimagrire",
+  maintain: "mantenimento",
+  gain: "massa",
+};
+
+export const ACTIVITY_FROM_API: Record<CreateProfileInput["activity_level"], ActivityLevel> = {
+  sedentary: "sedentary",
+  light: "light",
+  moderate: "moderate",
+  active: "high",
+  very_active: "high",
+};
+
+/** `goal` del server → `Goal` dell'app, `null` se il valore è sconosciuto. */
+export function goalFromApi(goal: string | null | undefined): Goal | null {
+  if (!goal) return null;
+  return GOAL_FROM_API[goal as CreateProfileInput["goal"]] ?? null;
+}
+
+/** `activity_level` del server → `ActivityLevel` dell'app, `null` se sconosciuto. */
+export function activityFromApi(level: string | null | undefined): ActivityLevel | null {
+  if (!level) return null;
+  return ACTIVITY_FROM_API[level as CreateProfileInput["activity_level"]] ?? null;
+}
+
+/**
  * L'onboarding raccoglie l'età anagrafica, il backend vuole `birth_date`:
  * deriviamo il 1° gennaio dell'anno (oggi − età). La precisione è annuale,
  * che è esattamente la precisione usata dal calcolo TDEE.
