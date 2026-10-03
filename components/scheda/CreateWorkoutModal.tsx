@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -30,6 +29,7 @@ import { isApiError } from "@/lib/api";
 import { aiErrorMessage, useGenerateWorkout, useReadFile, type AiFileWorkout } from "@/lib/aiQueries";
 import { documentMimeType, DocumentReadError, readDocumentBase64 } from "@/lib/fileReader";
 import { useSaveWorkoutDay, useSaveWorkoutPlan } from "@/lib/workoutQueries";
+import { Chip, IconButton, NumberField, PrimaryButton, Section } from "./formControls";
 import {
   AI_GOAL_OPTIONS,
   AI_LEVEL_OPTIONS,
@@ -110,127 +110,15 @@ type CreateWorkoutModalProps = {
   visible: boolean;
   /** Piano a cui agganciare il giorno; null = primo giorno (si crea qui). */
   planId: string | null;
+  /**
+   * Giorno della settimana preselezionato: il form apre direttamente in
+   * "manuale" su quel giorno (si usa toccando "Aggiungi" su una card vuota).
+   */
+  initialDayOfWeek?: DayOfWeek | null;
   onClose: () => void;
   /** Chiamata con l'id del giorno salvato (per aprirlo nella lista). */
   onDone: (dayId: string) => void;
 };
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <View className="gap-2">
-      <Text className="font-inter-semibold text-sm text-foreground">{title}</Text>
-      {children}
-    </View>
-  );
-}
-
-function Chip({
-  label,
-  selected = false,
-  onPress,
-}: {
-  label: string;
-  selected?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      className={`cursor-pointer rounded-full border px-4 py-2.5 active:opacity-80 ${
-        selected ? "border-primary bg-primary/15" : "border-border bg-surface"
-      }`}
-    >
-      <Text
-        className={`font-inter-semibold text-sm ${selected ? "text-primary" : "text-muted"}`}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  onChangeText,
-  accessibilityLabel,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  accessibilityLabel?: string;
-}) {
-  return (
-    <View className="flex-1">
-      <Text className="mb-1 font-sans text-xs text-muted">{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-        accessibilityLabel={accessibilityLabel ?? label}
-        placeholder="0"
-        placeholderTextColor="#64748B"
-        className="rounded-lg border border-border bg-surface px-3 py-2 text-center font-sans text-foreground"
-      />
-    </View>
-  );
-}
-
-function IconButton({
-  onPress,
-  disabled = false,
-  destructive = false,
-  accessibilityLabel,
-  children,
-}: {
-  onPress: () => void;
-  disabled?: boolean;
-  destructive?: boolean;
-  accessibilityLabel: string;
-  children: ReactNode;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      className={`h-11 w-11 cursor-pointer items-center justify-center rounded-lg active:opacity-80 ${
-        disabled ? "opacity-30" : destructive ? "bg-destructive/15" : "bg-background/60"
-      }`}
-    >
-      {children}
-    </Pressable>
-  );
-}
-
-function PrimaryButton({
-  label,
-  onPress,
-  disabled = false,
-  icon,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  icon?: ReactNode;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      className={`flex-row cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary py-3.5 active:opacity-80 ${
-        disabled ? "opacity-40" : ""
-      }`}
-    >
-      {icon}
-      <Text className="font-inter-bold text-base text-primary-foreground">{label}</Text>
-    </Pressable>
-  );
-}
 
 /**
  * Modal "Crea scheda" con tre flussi, tutti collegati al backend:
@@ -243,13 +131,16 @@ function PrimaryButton({
 export function CreateWorkoutModal({
   visible,
   planId,
+  initialDayOfWeek = null,
   onClose,
   onDone,
 }: CreateWorkoutModalProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
-  const [mode, setMode] = useState<Mode>("menu");
+  // Stato iniziale dal weekday preselezionato: aprire da una card vuota
+  // parte già sul form manuale, dal bottone "+" parte dal menu.
+  const [mode, setMode] = useState<Mode>(initialDayOfWeek ? "manual" : "menu");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -262,7 +153,7 @@ export function CreateWorkoutModal({
   const readFile = useReadFile();
 
   // Stato del flusso manuale.
-  const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>("monday");
+  const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>(initialDayOfWeek ?? "monday");
   const [trainingKey, setTrainingKey] = useState<TrainingTypeKey>("push");
   const [exercises, setExercises] = useState<FormExercise[]>(() => getDefaultExercises("push").map(toFormExercise));
 
@@ -511,10 +402,10 @@ export function CreateWorkoutModal({
   // Reset di tutti gli stati alla chiusura: la riapertura parte sempre pulita
   // (un'effect che fa setState all'apertura è vietata dal lint).
   function resetFormState() {
-    setMode("menu");
+    setMode(initialDayOfWeek ? "manual" : "menu");
     setError(null);
     setSaving(false);
-    setDayOfWeek("monday");
+    setDayOfWeek(initialDayOfWeek ?? "monday");
     setTrainingKey("push");
     setExercises(getDefaultExercises("push").map(toFormExercise));
     setFileName(null);

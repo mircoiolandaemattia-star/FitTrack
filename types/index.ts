@@ -61,6 +61,10 @@ export interface Exercise {
   reps: number;
   weightKg: number;
   order: number;
+  /** Pausa tra le serie (secondi). Assente = nessuna pausa indicata. */
+  restSeconds?: number | null;
+  /** Nota tecnica (tempo di esecuzione, tracce, cue). */
+  notes?: string | null;
 }
 
 export interface WorkoutSession {

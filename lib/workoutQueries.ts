@@ -99,6 +99,10 @@ function mapExercise(row: ApiExercise): Exercise {
     reps: row.reps,
     weightKg: row.weight_kg ?? 0,
     order: row.order_index,
+    // Servono al form di modifica: senza questi due campi ogni modifica
+    // avrebbe cancellato riposi e note della scheda generata.
+    restSeconds: row.rest_seconds,
+    notes: row.notes,
   };
 }
 
@@ -255,6 +259,121 @@ export function useSaveWorkoutDay() {
 
       return { planId, dayId: day.id };
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
+  });
+}
+
+export interface EditExerciseInput {
+  /** Id esistente: assente = esercizio nuovo da inserire. */
+  id?: string | null;
+  name: string;
+  sets: number;
+  reps: number;
+  weightKg: number;
+  restSeconds?: number | null;
+  notes?: string | null;
+}
+
+export interface EditWorkoutDayInput {
+  dayId: string;
+  /** Piano di appartenenza: serve per leggere gli altri giorni. */
+  planId: string;
+  dayOfWeek: DayOfWeek;
+  name: string;
+  exercises: EditExerciseInput[];
+}
+
+/**
+ * Modifica un giorno **senza** ricrearlo: il giorno viene aggiornato
+ * (nome e posizione in settimana) e gli esercizi vengono aggiunti,
+ * aggiornati o cancellati uno per uno.
+ *
+ * È la differenza sostanziale con la creazione (che fa delete + create):
+ * qui il giorno tiene il suo id, quindi le sessioni storiche restano
+ * collegate e il nome in "Storico sessioni" non va perso.
+ */
+export function useUpdateWorkoutDay() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: EditWorkoutDayInput): Promise<{ dayId: string }> => {
+      const targetOrder = weekdayToDayOrder(input.dayOfWeek);
+      const detail =
+        queryClient.getQueryData<ApiWorkoutPlanDetail>(workoutKeys.detail(input.planId)) ??
+        (await api.get<ApiWorkoutPlanDetail>(`/workout-plans/${input.planId}`));
+      const current = detail.workout_days.find((day) => day.id === input.dayId);
+      const previousOrder = current?.day_order ?? targetOrder;
+
+      // Il posto di destinazione è già occupato: si scambiano i due giorni
+      // invece di cancellarne uno (le sessioni di entrambi restano valide).
+      const occupant = detail.workout_days.find(
+        (day) => day.day_order === targetOrder && day.id !== input.dayId,
+      );
+      if (occupant) {
+        await api.put(`/workout-days/${occupant.id}`, { day_order: previousOrder });
+      }
+      await api.put(`/workout-days/${input.dayId}`, {
+        name: input.name,
+        day_order: targetOrder,
+      });
+
+      // 1..n in ordine di riga: l'ordine nel form è l'ordine di salvataggio.
+      const existingIds = new Set(
+        detail.workout_days.find((day) => day.id === input.dayId)?.exercises.map((e) => e.id) ?? [],
+      );
+      const keptIds = new Set<string>();
+
+      await Promise.all(
+        input.exercises.map((exercise, index) => {
+          const body = {
+            name: exercise.name,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            // Il backend accetta solo numeri (mai null): 0 = "cancellato",
+            // la stessa semantica che usano le schermate in lettura.
+            weight_kg: Math.max(0, exercise.weightKg),
+            rest_seconds: Math.max(0, exercise.restSeconds ?? 0),
+            notes: (exercise.notes ?? "").trim(),
+            order_index: index + 1,
+          };
+          if (exercise.id && existingIds.has(exercise.id)) {
+            keptIds.add(exercise.id);
+            return api.put(`/exercises/${exercise.id}`, body);
+          }
+          return api.post("/exercises", { workout_day_id: input.dayId, ...body });
+        }),
+      );
+
+      // Cancellati solo dopo il salvataggio: un errore non perde i dati.
+      const removed = [...existingIds].filter((id) => !keptIds.has(id));
+      await Promise.all(removed.map((id) => api.delete(`/exercises/${id}`)));
+
+      return { dayId: input.dayId };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
+  });
+}
+
+/**
+ * Cancella un giorno: le sessioni collegate sopravvivono (FK SetNull),
+ * gli esercizi cadono in cascata.
+ */
+export function useDeleteWorkoutDay() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (dayId: string) => api.delete(`/workout-days/${dayId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
+  });
+}
+
+/** Rinomina il piano (PUT /workout-plans/:id). */
+export function useUpdateWorkoutPlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { planId: string; name: string }) =>
+      api.put<ApiWorkoutPlan>(`/workout-plans/${input.planId}`, { name: input.name }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
   });
 }
