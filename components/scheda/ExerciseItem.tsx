@@ -9,7 +9,8 @@ type ExerciseItemProps = {
 
 /**
  * Riga di un singolo esercizio nella lista del giorno: nome,
- * serie × ripetizioni e peso consigliato.
+ * serie × ripetizioni, peso consigliato, pausa tra le serie e la nota
+ * tecnica quando presente.
  */
 export function ExerciseItem({ exercise, showOrder = true }: ExerciseItemProps) {
   return (
@@ -24,7 +25,13 @@ export function ExerciseItem({ exercise, showOrder = true }: ExerciseItemProps) 
         <Text className="mt-0.5 font-sans text-xs text-muted">
           {exercise.sets} serie × {exercise.reps} rep
           {exercise.weightKg > 0 ? ` · ${exercise.weightKg} kg` : ""}
+          {exercise.restSeconds ? ` · riposo ${exercise.restSeconds} s` : ""}
         </Text>
+        {/* Nota tecnica della scheda (tempo, tracce, cue): visibile qui,
+            modificabile dal form di modifica del giorno. */}
+        {exercise.notes ? (
+          <Text className="mt-1 font-sans text-xs leading-4 text-muted">{exercise.notes}</Text>
+        ) : null}
       </View>
     </View>
   );

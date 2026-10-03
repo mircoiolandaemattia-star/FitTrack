@@ -40,10 +40,12 @@ function errorMessage(error: unknown): string {
 
 /**
  * Scheda: vista settimanale con card espandibili per giorno, modal di
- * creazione dal bottone "+" e storico delle sessioni. I dati arrivano
- * tutti da React Query (piano con giorni/esercizi annidati + sessioni).
- * Su desktop/web i bottoni "+" e "Inizia" sono nostri (sola lettura) e il
- * layout diventa a due colonne.
+ * creazione dal bottone "+", form di modifica/eliminazione di ogni giorno
+ * (matita e cestino in testa alla card) e storico delle sessioni. I dati
+ * arrivano tutti da React Query (piano con giorni/esercizi annidati +
+ * sessioni). Su desktop/web il browser in sola lettura: i bottoni di
+ * modifica compaiono solo su app installata o PWA, e il layout diventa a
+ * due colonne.
  */
 export default function SchedaScreen() {
   const { width } = useWindowDimensions();
