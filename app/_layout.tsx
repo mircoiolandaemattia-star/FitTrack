@@ -12,6 +12,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { isProfileMissing, useProfile } from "@/lib/profileQueries";
 import { configureNotifications } from "@/lib/notifications";
 import "../global.css";
@@ -53,7 +54,12 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RootNavigator />
+        {/* Senza questo bordo un errore di render in Release termina il
+            processo (React → "uncaught" → reportFatal → abort) e a schermo
+            non compare nulla: qui resta catturato e viene mostrato. */}
+        <AppErrorBoundary>
+          <RootNavigator />
+        </AppErrorBoundary>
       </AuthProvider>
     </QueryClientProvider>
   );
