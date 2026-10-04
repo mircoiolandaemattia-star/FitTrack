@@ -50,10 +50,36 @@ export function periodRange(period: Period): { from: string; to: string } {
   return { from: toISODate(from), to: toISODate(today) };
 }
 
+/**
+ * Le colonne `date` del backend sono `DateTime` di Prisma: nel JSON
+ * arrivano come `2026-10-04T00:00:00.000Z` (e talvolta come `YYYY-MM-DD`).
+ * Qui tornano tutte ricondotte a una chiave `YYYY-MM-DD`, l'unico formato
+ * che l'app sa formattare e raggruppare; `null` se il valore è illeggibile.
+ */
+export function dayKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  if (match) return match[1];
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : toISODate(parsed);
+}
+
+/**
+ * Etichetta corta "gg mese".
+ *
+ * Deve assolutamente lavorare su una data valida: `Intl.DateTimeFormat
+ * .format()` su una `Date` invalida lancia `RangeError: Invalid time value`.
+ * Prima di questa correzione la stringa arrivata dal backend veniva
+ * concatenata con "T12:00:00" → "…T00:00:00.000ZT12:00:00" → data invalida →
+ * eccezione durante il render di Progressi, e senza error boundary React la
+ * segnalava come non catturata: l'app terminava.
+ */
 function fmtShort(dateISO: string): string {
+  const key = dayKey(dateISO);
+  if (!key) return "";
   // Mezzanotte locale: la data è solo un calendario, non un istante.
   return new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "short" }).format(
-    new Date(`${dateISO}T12:00:00`),
+    new Date(`${key}T12:00:00`),
   );
 }
 
@@ -119,7 +145,9 @@ function toProgressPhoto(row: ApiProgressPhoto): ProgressPhoto {
     id: row.id,
     userId: row.user_id,
     photoUrl: row.photo_url,
-    takenAt: row.date,
+    // Giorno calendario: con l'istante UTC "…T00:00:00.000Z" l'etichetta
+    // poteva scivolare sul giorno precedente in fusi a ovest di UTC.
+    takenAt: dayKey(row.date) ?? row.date,
   };
 }
 
@@ -217,7 +245,7 @@ export function useWeightSeries(from: string, to: string): WeightSeries {
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((row) => ({
-      date: row.date,
+      date: dayKey(row.date) ?? row.date,
       label: fmtShort(row.date),
       weight: row.weight_kg as number,
     }));
@@ -262,10 +290,14 @@ export function useCalorieSeries(from: string, to: string): CalorieSeries {
 
   const perDate = new Map<string, number>();
   (mealsQuery.data ?? []).forEach((meal, index) => {
+    // Chiave normalizzata: un pasto è identificato dal giorno, non dalla
+    // forma della stringa (DateTime di Prisma vs "YYYY-MM-DD").
+    const day = dayKey(meal.date);
+    if (!day) return;
     const items = foodResults[index]?.data ?? [];
     const calories = items.reduce((sum, item) => sum + item.calories, 0);
     if (calories > 0) {
-      perDate.set(meal.date, (perDate.get(meal.date) ?? 0) + calories);
+      perDate.set(day, (perDate.get(day) ?? 0) + calories);
     }
   });
 
