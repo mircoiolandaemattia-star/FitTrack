@@ -238,7 +238,7 @@ percorso JWKS copre anche i progetti cloud con *Custom Access Token Keys*
 | POST | `/api/ai-usage-log` | log in append (feature enum), nessuna modifica/cancellazione |
 | GET | `/api/ai-usage-log/today?feature=` | usi di oggi di `req.user_id` → `{feature, count}` (limite piano free) |
 | POST | `/api/ai/meal-photo` | foto base64 + testo → `{items, notes, remaining_today}`; free 2/giorno, premium illimitato |
-| POST | `/api/ai/workout-generate` | obiettivo/giorni/attrezzatura → `workout_plans` (`source: "ai"`) con giorni + esercizi annidati — **premium** |
+| POST | `/api/ai/workout-generate` | obiettivo/livello/giorni/attrezzatura + opzioni aggiuntive libere (`notes`) → `workout_plans` (`source: "ai"`) con giorni + esercizi annidati — **premium** |
 | POST | `/api/ai/diet-generate` | obiettivo/allergie/pasti → `diet_plans` (`source: "ai"`) con pasti + alimenti annidati — **premium** |
 | POST | `/api/ai/file-read` | foto o PDF di scheda/dieta → bozza strutturata **senza salvare** — **premium** |
 

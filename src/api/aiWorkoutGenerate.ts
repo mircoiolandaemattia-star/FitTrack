@@ -8,8 +8,9 @@ import { parse } from "./validate";
 
 /**
  * Generazione di una scheda allenamento: obiettivo, livello, giorni
- * disponibili ed attrezzatura → piano con giorni ed esercizi, salvato
- * direttamente come `workout_plans` (`source: "ai"`).
+ * disponibili, attrezzatura ed eventuali opzioni aggiuntive scritte
+ * dall'utente (testo libero, es. "focus su petto") → piano con giorni ed
+ * esercizi, salvato direttamente come `workout_plans` (`source: "ai"`).
  *
  * Accesso: solo `users.subscription_status === "premium"`, riletto dalla
  * tabella ad ogni richiesta → altrimenti 403 `PREMIUM_REQUIRED`.
@@ -21,6 +22,7 @@ const createBody = z.object({
   level: z.string().trim().max(60).default(""),
   days_per_week: z.number().int().min(1).max(7),
   equipment: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  /** Opzioni aggiuntive libere dell'utente (campo opzionale in fondo al form). */
   notes: z.string().trim().max(600).default(""),
   /** Nome del piano: se omesso si usa quello generato da Gemini. */
   name: z.string().trim().min(1).max(200).optional(),
@@ -82,7 +84,10 @@ export const generateWorkout: Handler = async (req) => {
       (data.level ? `Livello: ${data.level}\n` : "") +
       `Giorni a settimana: ${data.days_per_week}\n` +
       `Attrezzatura disponibile: ${data.equipment.length ? data.equipment.join(", ") : "nessuna indicazione"}\n` +
-      (data.notes ? `Note: ${data.notes}\n` : "") +
+      (data.notes
+        ? `Opzioni aggiuntive richieste dall'utente: rispettale, hanno ` +
+          `priorità sulle linee guida generali. ${data.notes}\n`
+        : "") +
       `Genera esattamente ${data.days_per_week} giorni.\n` +
       `Multifrequenza obbligatoria: ogni gruppo muscolare deve comparire 2 o ` +
       `3 volte nei giorni generati; i giorni possono ripetere gli stessi ` +

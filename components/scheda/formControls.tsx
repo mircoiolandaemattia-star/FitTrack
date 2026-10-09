@@ -78,6 +78,7 @@ export function TextField({
   placeholder,
   accessibilityLabel,
   numberOfLines = 1,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -85,6 +86,8 @@ export function TextField({
   placeholder?: string;
   accessibilityLabel?: string;
   numberOfLines?: number;
+  /** Limite di caratteri: allineato al massimo accettato dal backend. */
+  maxLength?: number;
 }) {
   return (
     <View className="flex-1">
@@ -95,6 +98,7 @@ export function TextField({
         placeholder={placeholder}
         placeholderTextColor="#64748B"
         multiline={numberOfLines > 1}
+        maxLength={maxLength}
         accessibilityLabel={accessibilityLabel ?? label}
         className={`rounded-lg border border-border bg-surface px-3 py-2 font-sans text-foreground ${
           numberOfLines > 1 ? "min-h-[64px] text-top" : ""

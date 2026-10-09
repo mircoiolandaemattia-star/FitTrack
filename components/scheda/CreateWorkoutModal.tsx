@@ -29,7 +29,7 @@ import { isApiError } from "@/lib/api";
 import { aiErrorMessage, useGenerateWorkout, useReadFile, type AiFileWorkout } from "@/lib/aiQueries";
 import { documentMimeType, DocumentReadError, readDocumentBase64 } from "@/lib/fileReader";
 import { useSaveWorkoutDay, useSaveWorkoutPlan } from "@/lib/workoutQueries";
-import { Chip, IconButton, NumberField, PrimaryButton, Section } from "./formControls";
+import { Chip, IconButton, NumberField, PrimaryButton, Section, TextField } from "./formControls";
 import {
   AI_GOAL_OPTIONS,
   AI_LEVEL_OPTIONS,
@@ -52,9 +52,30 @@ type Mode =
   | "ai-loading"
   | "ai-result";
 
-const AI_STEPS = ["Obiettivo", "Livello", "Giorni", "Attrezzatura"] as const;
+const AI_STEPS = [
+  "Obiettivo",
+  "Livello",
+  "Giorni",
+  "Attrezzatura",
+  "Opzioni aggiuntive",
+] as const;
 const MIN_DAYS = 2;
 const MAX_DAYS = 6;
+
+/** Ultime opzioni libere dell'utente: sono vincolanti nella generazione. */
+const AI_NOTES_MAX = 600;
+
+/**
+ * Suggerimenti per il campo "Opzioni aggiuntive": toccandone uno la frase
+ * entra nel testo (e si stacca dal testo se già presente), così chi non sa
+ * da dove partire vede subito che tipo di richieste possono passare all'AI.
+ */
+const AI_NOTE_SUGGESTIONS = [
+  "Focus su petto",
+  "Focus su gambe",
+  "Niente esercizi a terra",
+  "Solo esercizi con manubri",
+];
 
 /** Esercizio in costruzione nel form manuale (valori numerici come stringhe). */
 type FormExercise = {
@@ -166,6 +187,7 @@ export function CreateWorkoutModal({
   const [aiLevel, setAiLevel] = useState("intermedio");
   const [aiDays, setAiDays] = useState(4);
   const [aiEquipment, setAiEquipment] = useState<string[]>(["palestra"]);
+  const [aiNotes, setAiNotes] = useState("");
 
   /**
    * Risultato da mostrare in conferma. `saved` = il piano è già sul
@@ -313,6 +335,24 @@ export function CreateWorkoutModal({
   /* --------------------------- Flusso AI ---------------------------- */
 
   /**
+   * Aggiunge o rimuove una frase fra le opzioni aggiuntive: il campo resta
+   * testo libero, il suggerimento è solo una scorciatoia.
+   */
+  function toggleNoteSuggestion(suggestion: string) {
+    setAiNotes((prev) => {
+      const index = prev.toLowerCase().indexOf(suggestion.toLowerCase());
+      if (index === -1) {
+        const trimmed = prev.trim().replace(/[,;]+$/, "");
+        return trimmed ? `${trimmed}, ${suggestion}` : suggestion;
+      }
+      // Stacca la frase con la punteggiatura che le è rimasta attaccata.
+      const before = prev.slice(0, index).replace(/[\s,;]+$/, "");
+      const after = prev.slice(index + suggestion.length).replace(/^[\s,;]+/, "");
+      return [before, after].filter(Boolean).join(", ");
+    });
+  }
+
+  /**
    * `POST /ai/workout-generate`: il backend salva il piano (funzione
    * premium) e torna giorni ed esercizi già pronti, qui solo mostrati.
    */
@@ -325,7 +365,14 @@ export function CreateWorkoutModal({
       const equipment = aiEquipment.map(
         (key) => WORKOUT_EQUIPMENT_OPTIONS.find((option) => option.key === key)?.label ?? key,
       );
-      const plan = await generate.mutateAsync({ goal, level, daysPerWeek: aiDays, equipment });
+      const notes = aiNotes.trim();
+      const plan = await generate.mutateAsync({
+        goal,
+        level,
+        daysPerWeek: aiDays,
+        equipment,
+        notes: notes || undefined,
+      });
       setPreview({
         plan: {
           name: plan.name,
@@ -414,6 +461,7 @@ export function CreateWorkoutModal({
     setAiLevel("intermedio");
     setAiDays(4);
     setAiEquipment(["palestra"]);
+    setAiNotes("");
     setPreview(null);
   }
 
@@ -527,7 +575,7 @@ export function CreateWorkoutModal({
                   <MenuOption
                     icon={<Sparkles size={22} color="#38BDF8" strokeWidth={2.2} />}
                     title="Genera con AI"
-                    description="Rispondi a 4 domande: la scheda si compone e si salva da sola. Funzione premium."
+                    description="Rispondi a 4 domande e aggiungi le tue preferenze: la scheda si compone e si salva da sola. Funzione premium."
                     onPress={() => setMode("ai")}
                   />
                 </View>
@@ -852,6 +900,38 @@ export function CreateWorkoutModal({
                     </Section>
                   ) : null}
 
+                  {aiStep === 4 ? (
+                    <Section title="Altre preferenze? (facoltativo)">
+                      <TextField
+                        label="Opzioni aggiuntive"
+                        value={aiNotes}
+                        onChangeText={setAiNotes}
+                        placeholder="Es. focus su petto, niente esercizi con il bilanciere…"
+                        accessibilityLabel="Opzioni aggiuntive per la scheda"
+                        numberOfLines={3}
+                        maxLength={AI_NOTES_MAX}
+                      />
+                      <Text className="font-sans text-xs leading-4 text-muted">
+                        Scrivi pure liberamente: gruppo da mettere in primo piano (“focus su
+                        petto”), muscoli o esercizi da evitare, tecniche preferite. L’AI li
+                        rispetta nella composizione dei giorni.
+                      </Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        {AI_NOTE_SUGGESTIONS.map((suggestion) => (
+                          <Chip
+                            key={suggestion}
+                            label={suggestion}
+                            selected={aiNotes.toLowerCase().includes(suggestion.toLowerCase())}
+                            onPress={() => toggleNoteSuggestion(suggestion)}
+                          />
+                        ))}
+                      </View>
+                      <Text className="font-sans text-xs text-muted">
+                        {aiNotes.trim().length}/{AI_NOTES_MAX}
+                      </Text>
+                    </Section>
+                  ) : null}
+
                   <View className="flex-row gap-2">
                     {aiStep > 0 ? (
                       <Pressable
@@ -886,8 +966,8 @@ export function CreateWorkoutModal({
                     Generazione della scheda…
                   </Text>
                   <Text className="text-center font-sans text-sm leading-5 text-muted">
-                    Stiamo componendo i giorni in base a obiettivo, livello e attrezzatura:
-                    può volerci qualche decina di secondi.
+                    Stiamo componendo i giorni in base a obiettivo, livello, attrezzatura e
+                    alle tue opzioni aggiuntive: può volerci qualche decina di secondi.
                   </Text>
                 </View>
               ) : null}
